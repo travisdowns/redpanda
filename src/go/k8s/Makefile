@@ -56,7 +56,7 @@ uninstall: manifests kustomize
 deploy: manifests kustomize
 	cd config/manager && $(KUSTOMIZE) edit set image vectorized/redpanda-operator=${OPERATOR_IMG_LATEST}
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
-	kind load docker-image ${REDPANDA_IMG}
+	kind load $(KIND_ADDITIONAL_FLAGS) docker-image ${REDPANDA_IMG}
 
 # Deploy pre loaded controller in the configured Kind Kubernetes cluster
 deploy-to-kind: manifests kustomize push-to-kind deploy
@@ -105,8 +105,8 @@ docker-build-configurator: prepare-dockerfile
 
 # Preload controller image to kind cluster
 push-to-kind: kind-create certmanager-install
-	kind load docker-image ${OPERATOR_IMG_LATEST}
-	kind load docker-image ${CONFIGURATOR_IMG_LATEST}
+	kind load docker-image $(KIND_ADDITIONAL_FLAGS) ${OPERATOR_IMG_LATEST}
+	kind load docker-image $(KIND_ADDITIONAL_FLAGS) ${CONFIGURATOR_IMG_LATEST}
 
 # Execute end to end tests
 e2e-tests: kuttl test docker-build docker-build-configurator
