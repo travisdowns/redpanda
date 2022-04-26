@@ -66,7 +66,7 @@ ss::future<bool> try_create_consumer_group_topic(
           vassert(res.size() == 1, "expected exactly one result");
           if (res[0].ec != cluster::errc::success) {
               vlog(
-                klog.warn,
+                kgrouplog.warn,
                 "can not create {}/{} topic - error: {}",
                 mapper.ns()(),
                 mapper.topic()(),
@@ -77,7 +77,7 @@ ss::future<bool> try_create_consumer_group_topic(
       })
       .handle_exception([&mapper](const std::exception_ptr& e) {
           vlog(
-            klog.warn,
+            kgrouplog.warn,
             "can not create {}/{} topic - exception: {}",
             mapper.ns()(),
             mapper.topic()(),
