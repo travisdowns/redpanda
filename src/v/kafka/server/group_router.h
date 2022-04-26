@@ -25,6 +25,7 @@
 #include "kafka/server/coordinator_ntp_mapper.h"
 #include "kafka/server/group_manager.h"
 #include "kafka/types.h"
+#include "logger.h"
 #include "seastarx.h"
 
 #include <seastar/core/reactor.hh>
@@ -57,6 +58,7 @@ class group_router final {
 
         auto m = shard_for(r.data.group_id);
         if (!m || _disabled) {
+            vlog(kgrouplog.trace, "in route() not coordinator for {}", r.data.group_id);
             return ss::make_ready_future<resp_type>(
               resp_type(r, error_code::not_coordinator));
         }

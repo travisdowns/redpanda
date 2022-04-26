@@ -63,6 +63,7 @@ group::group(
   , _recovery_policy(
       config::shard_local_cfg().rm_violation_recovery_policy.value())
   , _ctxlog(klog, *this)
+  , _ctx_glog(kgrouplog, *this)
   , _ctx_txlog(cluster::txlog, *this)
   , _md_serializer(std::move(serializer))
   , _enable_group_metrics(group_metrics) {}
@@ -82,6 +83,7 @@ group::group(
   , _recovery_policy(
       config::shard_local_cfg().rm_violation_recovery_policy.value())
   , _ctxlog(klog, *this)
+  , _ctx_glog(kgrouplog, *this)
   , _ctx_txlog(cluster::txlog, *this)
   , _md_serializer(std::move(serializer))
   , _enable_group_metrics(group_metrics) {
@@ -100,7 +102,7 @@ group::group(
             .name = _protocol.value_or(protocol_name("")),
             .metadata = iobuf_to_bytes(m.subscription),
           }});
-        vlog(_ctxlog.trace, "Initializing group with member {}", member);
+        vlog(_ctx_glog.trace, "Initializing group with member {}", member);
         add_member_no_join(member);
     }
 }
@@ -153,14 +155,14 @@ group_state group::set_state(group_state s) {
       _id,
       _state,
       s);
-    vlog(_ctxlog.trace, "Changing state from {} to {}", _state, s);
+    vlog(_ctx_glog.trace, "Changing state from {} to {}", _state, s);
     _state_timestamp = model::timestamp::now();
     return std::exchange(_state, s);
 }
 
 bool group::supports_protocols(const join_group_request& r) const {
     vlog(
-      _ctxlog.trace,
+      _ctx_glog.trace,
       "Check protocol support type {} members {} req.type {} req.protos {} "
       "supported {}",
       _protocol_type,
@@ -213,7 +215,7 @@ void group::add_member_no_join(member_ptr member) {
     auto res = _members.emplace(member->id(), member);
     if (!res.second) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Cannot add member with duplicate id {}",
           member->id());
         throw std::runtime_error(
@@ -234,7 +236,7 @@ ss::future<join_group_response> group::add_member(member_ptr member) {
 void group::update_member_no_join(
   member_ptr member, std::vector<member_protocol>&& new_protocols) {
     vlog(
-      _ctxlog.trace,
+      _ctx_glog.trace,
       "Updating {}joining member {} with protocols {}",
       member->is_joining() ? "" : "non-",
       member,
@@ -283,7 +285,8 @@ group::duration_type group::rebalance_timeout() const {
     if (likely(it != _members.end())) {
         return it->second->rebalance_timeout();
     } else {
-        vlog(_ctxlog.trace, "Cannot compute rebalance timeout for empty group");
+        vlog(
+          _ctx_glog.trace, "Cannot compute rebalance timeout for empty group");
         throw std::runtime_error("no members in group");
     }
 }
@@ -293,7 +296,7 @@ std::vector<member_config> group::member_metadata() const {
       in_state(group_state::dead)
       || in_state(group_state::preparing_rebalance)) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Cannot collect member metadata in group state {}",
           _state);
         throw std::runtime_error(
@@ -351,7 +354,7 @@ void group::advance_generation() {
         _protocol = select_protocol();
         set_state(group_state::completing_rebalance);
     }
-    vlog(_ctxlog.trace, "Advanced generation with protocol {}", _protocol);
+    vlog(_ctx_glog.trace, "Advanced generation with protocol {}", _protocol);
 }
 
 /*
@@ -372,7 +375,7 @@ kafka::protocol_name group::select_protocol() const {
           }
       });
 
-    vlog(_ctxlog.trace, "Selecting protocol from candidates {}", candidates);
+    vlog(_ctx_glog.trace, "Selecting protocol from candidates {}", candidates);
 
     // collect votes from members
     protocol_support votes;
@@ -383,7 +386,7 @@ kafka::protocol_name group::select_protocol() const {
           auto& choice = m.second->vote_for_protocol(candidates);
           auto total = ++votes[choice];
           vlog(
-            _ctxlog.trace,
+            _ctx_glog.trace,
             "Member {} voting for protocol {} (total {})",
             m.first,
             choice,
@@ -402,7 +405,7 @@ kafka::protocol_name group::select_protocol() const {
 
     // this is guaranteed to succeed because `member->vote` will throw if it
     // is unable to vote on some protocol candidate.
-    vlog(_ctxlog.trace, "Selected protocol {}", winner->first);
+    vlog(_ctx_glog.trace, "Selected protocol {}", winner->first);
     return winner->first;
 }
 
@@ -415,7 +418,7 @@ void group::finish_syncing_members(error_code error) {
           if (member->is_syncing()) {
               auto reply = sync_group_response(error, member->assignment());
               vlog(
-                _ctxlog.trace,
+                _ctx_glog.trace,
                 "Completed syncing member {} with reply {}",
                 member,
                 reply);
@@ -438,7 +441,7 @@ bool group::leader_rejoined() {
 
     auto leader = get_member(*_leader);
     if (leader->is_joining()) {
-        vlog(_ctxlog.trace, "Leader {} has rejoined", *_leader);
+        vlog(_ctx_glog.trace, "Leader {} has rejoined", *_leader);
         return true;
     }
 
@@ -451,11 +454,11 @@ bool group::leader_rejoined() {
       });
 
     if (it == _members.end()) {
-        vlog(_ctxlog.trace, "No replacement leader is available");
+        vlog(_ctx_glog.trace, "No replacement leader is available");
         return false;
     } else {
         _leader = it->first;
-        vlog(_ctxlog.trace, "Selected new leader {}", *_leader);
+        vlog(_ctx_glog.trace, "Selected new leader {}", *_leader);
         return true;
     }
 }
@@ -463,7 +466,7 @@ bool group::leader_rejoined() {
 group::join_group_stages
 group::handle_join_group(join_group_request&& r, bool is_new_group) {
     vlog(
-      _ctxlog.trace,
+      _ctx_glog.trace,
       "Handling join request {} for {} group {}",
       r,
       (is_new_group ? "new" : "existing"),
@@ -502,7 +505,7 @@ group::handle_join_group(join_group_request&& r, bool is_new_group) {
          * handles that before returning.
          */
         if (all_members_joined()) {
-            vlog(_ctxlog.trace, "Finishing join with all members present");
+            vlog(_ctx_glog.trace, "Finishing join with all members present");
             _join_timer.cancel();
             complete_join();
         }
@@ -516,7 +519,7 @@ group::handle_join_group(join_group_request&& r, bool is_new_group) {
 group::join_group_stages
 group::join_group_unknown_member(join_group_request&& r) {
     if (in_state(group_state::dead)) {
-        vlog(_ctxlog.trace, "Join rejected in state {}", _state);
+        vlog(_ctx_glog.trace, "Join rejected in state {}", _state);
         return join_group_stages(make_join_error(
           unknown_member_id, error_code::coordinator_not_available));
 
@@ -712,7 +715,7 @@ group::add_new_dynamic_member(member_id new_member_id, join_group_request&& r) {
         // call for another join group request with allocated member id.
         // </kafka>
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Requesting rejoin for unknown member with new id {}",
           new_member_id);
         add_pending_member(new_member_id, r.data.session_timeout_ms);
@@ -727,7 +730,7 @@ group::join_group_stages
 group::join_group_known_member(join_group_request&& r) {
     if (in_state(group_state::dead)) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Join rejected in state {} for {}",
           _state,
           r.data.member_id);
@@ -746,7 +749,7 @@ group::join_group_known_member(join_group_request&& r) {
                  r.data.member_id, r.data.group_instance_id, "join");
                ec != error_code::none) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Join rejected for invalid member {} - {}",
           r.data.member_id,
           ec);
@@ -756,7 +759,7 @@ group::join_group_known_member(join_group_request&& r) {
     auto member = get_member(r.data.member_id);
 
     vlog(
-      _ctxlog.trace,
+      _ctx_glog.trace,
       "Handling join for {}leader member {}",
       is_leader(member->id()) ? "" : "non-",
       member);
@@ -787,7 +790,7 @@ group::join_group_known_member(join_group_request&& r) {
               std::move(members));
 
             vlog(
-              _ctxlog.trace,
+              _ctx_glog.trace,
               "Resending join response for member {} reply {}",
               member->id(),
               response);
@@ -796,7 +799,7 @@ group::join_group_known_member(join_group_request&& r) {
 
         } else {
             // <kafka>member has changed metadata, so force a rebalance</kafka>
-            vlog(_ctxlog.trace, "Rebalancing due to protocol change");
+            vlog(_ctx_glog.trace, "Rebalancing due to protocol change");
             return update_member_and_rebalance(member, std::move(r));
         }
 
@@ -809,7 +812,8 @@ group::join_group_known_member(join_group_request&& r) {
             // trigger rebalances for changes affecting assignment which do not
             // affect the member metadata (such as topic metadata changes for
             // the consumer)</kafka>
-            vlog(_ctxlog.trace, "Rebalancing due to leader or protocol change");
+            vlog(
+              _ctx_glog.trace, "Rebalancing due to leader or protocol change");
             return update_member_and_rebalance(member, std::move(r));
 
         } else {
@@ -823,7 +827,8 @@ group::join_group_known_member(join_group_request&& r) {
               leader().value_or(member_id("")),
               std::move(r.data.member_id));
 
-            vlog(_ctxlog.trace, "Handling idemponent group join {}", response);
+            vlog(
+              _ctx_glog.trace, "Handling idemponent group join {}", response);
 
             return join_group_stages(std::move(response));
         }
@@ -891,7 +896,7 @@ group::join_group_stages group::add_member_and_rebalance(
     member->expire_timer().arm(deadline);
 
     vlog(
-      _ctxlog.trace,
+      _ctx_glog.trace,
       "Added member {} with join timeout {} ms to group {}",
       member,
       _conf.group_new_member_join_timeout(),
@@ -911,7 +916,7 @@ group::update_member_and_rebalance(member_ptr member, join_group_request&& r) {
 
 void group::try_prepare_rebalance() {
     if (!valid_previous_state(group_state::preparing_rebalance)) {
-        vlog(_ctxlog.trace, "Cannot prepare rebalance in state {}", _state);
+        vlog(_ctx_glog.trace, "Cannot prepare rebalance in state {}", _state);
         return;
     }
 
@@ -943,7 +948,7 @@ void group::try_prepare_rebalance() {
                   remaining = std::max(
                     remaining - prev_delay, std::chrono::milliseconds(0));
                   vlog(
-                    _ctxlog.trace,
+                    _ctx_glog.trace,
                     "Scheduling debounce join timer for {} ms remaining {} ms",
                     delay,
                     remaining);
@@ -954,20 +959,20 @@ void group::try_prepare_rebalance() {
           });
 
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Scheduling initial debounce join timer for {} ms",
           initial);
 
         _join_timer.arm(initial);
 
     } else if (all_members_joined()) {
-        vlog(_ctxlog.trace, "All members have joined");
+        vlog(_ctx_glog.trace, "All members have joined");
         complete_join();
 
     } else {
         auto timeout = rebalance_timeout();
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Join completion scheduled in {} ms. Current members {} waiting {} "
           "pending {}",
           timeout,
@@ -987,7 +992,7 @@ void group::try_prepare_rebalance() {
  * is added.
  */
 void group::complete_join() {
-    vlog(_ctxlog.trace, "Completing join for group {}", *this);
+    vlog(_ctx_glog.trace, "Completing join for group {}", *this);
     _initial_join_in_progress = false;
 
     // <kafka>remove dynamic members who haven't joined the group yet</kafka>
@@ -995,7 +1000,7 @@ void group::complete_join() {
     const auto prev_leader = _leader;
     for (auto it = _members.begin(); it != _members.end();) {
         if (!it->second->is_joining() && !it->second->is_static()) {
-            vlog(_ctxlog.trace, "Removing unjoined member {}", it->first);
+            vlog(_ctx_glog.trace, "Removing unjoined member {}", it->first);
 
             // cancel the heartbeat timer
             it->second->expire_timer().cancel();
@@ -1029,14 +1034,14 @@ void group::complete_join() {
 
     if (_leader != prev_leader) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Leadership changed to {} from {}",
           _leader,
           prev_leader);
     }
 
     if (in_state(group_state::dead)) {
-        vlog(_ctxlog.trace, "Cancelling join completion in state {}", _state);
+        vlog(_ctx_glog.trace, "Cancelling join completion in state {}", _state);
 
     } else if (!leader_rejoined() && has_members()) {
         // <kafka>If all members are not rejoining, we will postpone the
@@ -1048,7 +1053,7 @@ void group::complete_join() {
         // the initial delayed callback which implements debouncing.
         auto timeout = rebalance_timeout();
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "No members re-joined. Scheduling completion for {} ms",
           timeout);
         _join_timer.cancel();
@@ -1059,7 +1064,7 @@ void group::complete_join() {
         advance_generation();
 
         if (in_state(group_state::empty)) {
-            vlog(_ctxlog.trace, "Checkpointing empty group {}", *this);
+            vlog(_ctx_glog.trace, "Checkpointing empty group {}", *this);
             ssx::background
               = store_group(checkpoint(assignments_type{}))
                   .then(
@@ -1087,8 +1092,8 @@ void group::complete_join() {
                     std::move(md));
 
                   vlog(
-                    _ctxlog.trace,
-                    "Completing join for {} with reply {}",
+                    _ctx_glog.trace,
+                    "Completing join for {} with reply {.1000}",
                     member->id(),
                     reply);
 
@@ -1104,20 +1109,20 @@ void group::heartbeat_expire(
   kafka::member_id member_id, clock_type::time_point deadline) {
     if (in_state(group_state::dead)) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Ignoring heartbeat expiration for group state {}",
           _state);
 
     } else if (contains_pending_member(member_id)) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Handling expired heartbeat for pending member {}",
           member_id);
         remove_pending_member(member_id);
 
     } else if (!contains_member(member_id)) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Ignoring heartbeat expiration for unregistered member {}",
           member_id);
 
@@ -1126,7 +1131,7 @@ void group::heartbeat_expire(
         const auto keep_alive = member->should_keep_alive(
           deadline, _conf.group_new_member_join_timeout());
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Heartbeat expired for keep_alive={} member {}",
           keep_alive,
           member_id);
@@ -1140,17 +1145,20 @@ void group::try_finish_joining_member(
   member_ptr member, join_group_response&& response) {
     if (member->is_joining()) {
         vlog(
-          _ctxlog.trace,
-          "Finishing joining member {} with reply {}",
+          _ctx_glog.trace,
+          "Finishing joining member {} with reply {.1000}",
           member->id(),
           response);
         member->set_join_response(std::move(response));
         _num_members_joining--;
         vassert(_num_members_joining >= 0, "negative members joining");
+    } else {
+        vlog(_ctx_glog.trace, "Not finishing joining member {}", member->id());
     }
 }
 
 void group::schedule_next_heartbeat_expiration(member_ptr member) {
+    auto old_timeout = member->expire_timer().get_timeout();
     member->expire_timer().cancel();
     auto now = clock_type::now();
     member->set_latest_heartbeat(now);
@@ -1160,16 +1168,17 @@ void group::schedule_next_heartbeat_expiration(member_ptr member) {
           heartbeat_expire(member_id, deadline);
       });
     vlog(
-      _ctxlog.trace,
-      "Scheduling heartbeat expiration {} ms for {}",
+      _ctx_glog.trace,
+      "Scheduling new heartbeat expiration {} ms for {}, buffer {} ms",
       member->session_timeout(),
-      member->id());
+      member->id(),
+      old_timeout - now);
     member->expire_timer().arm(deadline);
 }
 
 void group::remove_pending_member(kafka::member_id member_id) {
     _pending_members.erase(member_id);
-    vlog(_ctxlog.trace, "Removing pending member {}", member_id);
+    vlog(_ctx_glog.trace, "Removing pending member {}", member_id);
     if (in_state(group_state::preparing_rebalance)) {
         if (_join_timer.armed() && all_members_joined()) {
             _join_timer.cancel();
@@ -1199,7 +1208,7 @@ void group::shutdown() {
 }
 
 void group::remove_member(member_ptr member) {
-    vlog(_ctxlog.trace, "Removing member {}", member->id());
+    vlog(_ctx_glog.trace, "Removing member {}", member->id());
 
     // <kafka>New members may timeout with a pending JoinGroup while the group
     // is still rebalancing, so we have to invoke the callback before removing
@@ -1237,7 +1246,7 @@ void group::remove_member(member_ptr member) {
         }
         if (_leader != prev_leader) {
             vlog(
-              _ctxlog.trace,
+              _ctx_glog.trace,
               "Leadership changed to {} from {}",
               _leader,
               prev_leader);
@@ -1273,10 +1282,10 @@ void group::remove_member(member_ptr member) {
 }
 
 group::sync_group_stages group::handle_sync_group(sync_group_request&& r) {
-    vlog(_ctxlog.trace, "Handling sync group request {}", r);
+    vlog(_ctx_glog.trace, "Handling sync group request {}", r);
 
     if (in_state(group_state::dead)) {
-        vlog(_ctxlog.trace, "Sync rejected for group state {}", _state);
+        vlog(_ctx_glog.trace, "Sync rejected for group state {}", _state);
         return sync_group_stages(
           sync_group_response(error_code::coordinator_not_available));
 
@@ -1284,7 +1293,7 @@ group::sync_group_stages group::handle_sync_group(sync_group_request&& r) {
                  r.data.member_id, r.data.group_instance_id, "sync");
                ec != error_code::none) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Sync rejected for invalid member {} - {}",
           r.data.member_id,
           ec);
@@ -1292,7 +1301,7 @@ group::sync_group_stages group::handle_sync_group(sync_group_request&& r) {
 
     } else if (r.data.generation_id != generation()) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Sync rejected with out-of-date generation {} != {}",
           r.data.generation_id,
           generation());
@@ -1317,12 +1326,12 @@ group::sync_group_stages group::handle_sync_group(sync_group_request&& r) {
     // and returns the assignment for itself.
     switch (state()) {
     case group_state::empty:
-        vlog(_ctxlog.trace, "Sync rejected for group state {}", _state);
+        vlog(_ctx_glog.trace, "Sync rejected for group state {}", _state);
         return sync_group_stages(
           sync_group_response(error_code::unknown_member_id));
 
     case group_state::preparing_rebalance:
-        vlog(_ctxlog.trace, "Sync rejected for group state {}", _state);
+        vlog(_ctx_glog.trace, "Sync rejected for group state {}", _state);
         return sync_group_stages(
           sync_group_response(error_code::rebalance_in_progress));
 
@@ -1338,7 +1347,7 @@ group::sync_group_stages group::handle_sync_group(sync_group_request&& r) {
         schedule_next_heartbeat_expiration(member);
         sync_group_response reply(error_code::none, member->assignment());
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Handling idemponent group sync for member {} with reply {}",
           member,
           reply);
@@ -1381,13 +1390,13 @@ group::sync_group_stages group::sync_group_completing_rebalance(
     // wait for the leader to show up and fulfill the promise
     if (!is_leader(r.data.member_id)) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Non-leader member waiting for assignment {}",
           member->id());
         return sync_group_stages(std::move(response));
     }
 
-    vlog(_ctxlog.trace, "Completing group sync with leader {}", member->id());
+    vlog(_ctx_glog.trace, "Completing group sync with leader {}", member->id());
 
     // construct a member assignment structure that will be persisted to the
     // underlying metadata topic for group recovery. the mapping is the
@@ -1445,17 +1454,17 @@ group::sync_group_stages group::sync_group_completing_rebalance(
 }
 
 ss::future<heartbeat_response> group::handle_heartbeat(heartbeat_request&& r) {
-    vlog(_ctxlog.trace, "Handling heartbeat request {}", r);
+    vlog(_ctx_glog.trace, "Handling heartbeat request {}", r);
 
     if (in_state(group_state::dead)) {
-        vlog(_ctxlog.trace, "Heartbeat rejected for group state {}", _state);
+        vlog(_ctx_glog.trace, "Heartbeat rejected for group state {}", _state);
         return make_heartbeat_error(error_code::coordinator_not_available);
 
     } else if (auto ec = validate_existing_member(
                  r.data.member_id, r.data.group_instance_id, "heartbeat");
                ec != error_code::none) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Heartbeat rejected for invalid member {} - {}",
           r.data.member_id,
           ec);
@@ -1463,7 +1472,7 @@ ss::future<heartbeat_response> group::handle_heartbeat(heartbeat_request&& r) {
 
     } else if (r.data.generation_id != generation()) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Heartbeat rejected with out-of-date generation {} != {}",
           r.data.generation_id,
           generation());
@@ -1472,11 +1481,11 @@ ss::future<heartbeat_response> group::handle_heartbeat(heartbeat_request&& r) {
 
     switch (state()) {
     case group_state::empty:
-        vlog(_ctxlog.trace, "Heartbeat rejected for group state {}", _state);
+        vlog(_ctx_glog.trace, "Heartbeat rejected for group state {}", _state);
         return make_heartbeat_error(error_code::unknown_member_id);
 
     case group_state::completing_rebalance:
-        vlog(_ctxlog.trace, "Heartbeat rejected for group state {}", _state);
+        vlog(_ctx_glog.trace, "Heartbeat rejected for group state {}", _state);
         return make_heartbeat_error(error_code::rebalance_in_progress);
 
     case group_state::preparing_rebalance: {
@@ -1501,9 +1510,10 @@ ss::future<heartbeat_response> group::handle_heartbeat(heartbeat_request&& r) {
 
 ss::future<leave_group_response>
 group::handle_leave_group(leave_group_request&& r) {
-    vlog(_ctxlog.trace, "Handling leave group request {}", r);
+    vlog(_ctx_glog.trace, "Handling leave group request {}", r);
+
     if (in_state(group_state::dead)) {
-        vlog(_ctxlog.trace, "Leave rejected for group state {}", _state);
+        vlog(_ctx_glog.trace, "Leave rejected for group state {}", _state);
         return make_leave_error(error_code::coordinator_not_available);
     }
     /**
@@ -1558,7 +1568,7 @@ kafka::error_code group::member_leave_group(
                  member_id, group_instance_id, "leave");
                ec != error_code::none) {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Leave rejected for invalid member {} - {}",
           member_id,
           ec);
@@ -2099,7 +2109,7 @@ group::offset_commit_stages group::store_offsets(offset_commit_request&& r) {
           auto error = error_code::none;
           if (!r) {
               vlog(
-                _ctxlog.info,
+                _ctx_glog.info,
                 "Storing committed offset failed - {}",
                 r.error().message());
               error = map_store_offset_error_code(r.error());
@@ -2443,20 +2453,20 @@ ss::future<error_code> group::remove() {
           raft::replicate_options(raft::consistency_level::quorum_ack));
         if (result) {
             vlog(
-              klog.trace,
+              kgrouplog.trace,
               "Replicated group delete record {} at offset {}",
               _id,
               result.value().last_offset);
         } else {
             vlog(
-              klog.error,
+              kgrouplog.error,
               "Error occured replicating group {} delete records {}",
               _id,
               result.error());
         }
     } catch (const std::exception& e) {
         vlog(
-          klog.error,
+          kgrouplog.error,
           "Exception occured replicating group {} delete records {}",
           _id,
           e);
@@ -2483,7 +2493,7 @@ group::remove_topic_partitions(const std::vector<model::topic_partition>& tps) {
       in_state(group_state::empty) && _pending_offset_commits.empty()
       && _offsets.empty()) {
         vlog(
-          klog.debug,
+          kgrouplog.debug,
           "Marking group {} as dead at {} generation",
           _id,
           generation());
@@ -2505,7 +2515,10 @@ group::remove_topic_partitions(const std::vector<model::topic_partition>& tps) {
     // create deletion records for offsets from deleted partitions
     for (auto& offset : removed) {
         vlog(
-          klog.trace, "Removing offset for group {} tp {}", _id, offset.first);
+          kgrouplog.trace,
+          "Removing offset for group {} tp {}",
+          _id,
+          offset.first);
         add_offset_tombstone_record(_id, offset.first, _md_serializer, builder);
     }
 
@@ -2523,20 +2536,20 @@ group::remove_topic_partitions(const std::vector<model::topic_partition>& tps) {
           raft::replicate_options(raft::consistency_level::quorum_ack));
         if (result) {
             vlog(
-              klog.trace,
+              kgrouplog.trace,
               "Replicated group cleanup record {} at offset {}",
               _id,
               result.value().last_offset);
         } else {
             vlog(
-              klog.error,
+              kgrouplog.error,
               "Error occured replicating group {} cleanup records {}",
               _id,
               result.error());
         }
     } catch (const std::exception& e) {
         vlog(
-          klog.error,
+          kgrouplog.error,
           "Exception occured replicating group {} cleanup records {}",
           _id,
           e);
@@ -2611,12 +2624,32 @@ std::ostream& operator<<(std::ostream& o, const group& g) {
       g._new_member_added,
       timer_expires(g._join_timer));
 
-    fmt::print(o, " pending members [");
+    // limit member list output to this number to avoid gigantic log lines
+    constexpr size_t member_limit = 2;
+
+    size_t mcount = 0;
+    fmt::print(o, " {} pending members [", g._pending_members.size());
     for (const auto& m : g._pending_members) {
+        if (mcount++ >= member_limit) {
+            fmt::print(
+              o,
+              "... {} more members not shown",
+              g._pending_members.size() - mcount + 1);
+              break;
+        }
         fmt::print(o, "{} expires={} ", m.first, timer_expires(m.second));
     }
-    fmt::print(o, "] full members [");
+
+    mcount = 0;
+    fmt::print(o, "] {} full members [", g._members.size());
     for (const auto& m : g._members) {
+        if (mcount++ >= member_limit) {
+            fmt::print(
+              o,
+              "... {} more members not shown",
+              g._members.size() - mcount + 1);
+              break;
+        }
         fmt::print(o, "{} ", m.second);
     }
     fmt::print(o, "]");
@@ -2651,7 +2684,7 @@ void group::add_pending_member(
   const kafka::member_id& member_id, duration_type timeout) {
     auto res = _pending_members.try_emplace(member_id, [this, member_id] {
         vlog(
-          _ctxlog.trace,
+          _ctx_glog.trace,
           "Handling expired heartbeat for pending member {}",
           member_id);
         remove_pending_member(member_id);
@@ -2663,7 +2696,7 @@ void group::add_pending_member(
     }
 
     vlog(
-      _ctxlog.trace,
+      _ctx_glog.trace,
       "Scheduling heartbeat expiration {} ms for pending {}",
       timeout,
       member_id);
