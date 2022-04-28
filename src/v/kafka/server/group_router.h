@@ -58,7 +58,10 @@ class group_router final {
 
         auto m = shard_for(r.data.group_id);
         if (!m || _disabled) {
-            vlog(kgrouplog.trace, "in route() not coordinator for {}", r.data.group_id);
+            vlog(
+              kgrouplog.trace,
+              "in route() not coordinator for {}",
+              r.data.group_id);
             return ss::make_ready_future<resp_type>(
               resp_type(r, error_code::not_coordinator));
         }
@@ -244,8 +247,10 @@ public:
     }
 
     ss::future<described_group> describe_group(kafka::group_id g) {
+        vlog(kgrouplog.trace, "describe_group begin for {}", g);
         auto m = shard_for(g);
         if (!m) {
+            vlog(kgrouplog.trace, "describe_group failing for {}", g);
             return ss::make_ready_future<described_group>(
               describe_groups_response::make_empty_described_group(
                 std::move(g), error_code::not_coordinator));
@@ -257,7 +262,25 @@ public:
                 _ssg,
                 [g = std::move(g),
                  ntp = std::move(m->first)](group_manager& mgr) mutable {
-                    return mgr.describe_group(ntp, g);
+                    auto start_time = ss::lowres_clock::now();
+                    vlog(
+                      kgrouplog.trace, "describe_group inner begin for {}", g);
+                    try {
+                        auto res = mgr.describe_group(ntp, g);
+                        vlog(
+                          kgrouplog.trace,
+                          "describe_group inner success for {} in {} ms",
+                          g,
+                          ss::lowres_clock::now() - start_time);
+                        return res;
+                    } catch (...) {
+                        vlog(
+                          kgrouplog.trace,
+                          "describe_group inner failure for {} in {} ms",
+                          g,
+                          ss::lowres_clock::now() - start_time);
+                        throw;
+                    }
                 });
           });
     }
