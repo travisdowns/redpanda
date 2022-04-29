@@ -10,6 +10,8 @@
  */
 #include "kafka/server/group_router.h"
 
+#include "random/generators.h"
+
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/with_scheduling_group.hh>
@@ -78,6 +80,50 @@ group_router::delete_groups(std::vector<group_id> groups) {
         sharded_groups& groups_by_shard) {
           return parallel_route_delete_groups(results, groups_by_shard)
             .then([&results] { return std::move(results); });
+      });
+}
+
+ss::future<described_group> group_router::describe_group(kafka::group_id g) {
+    auto unique = random_generators::get_int<unsigned>();
+    vlog(kgrouplog.trace, "describe_group begin for {} id:{}", g, unique);
+    auto m = shard_for(g);
+    if (!m) {
+        vlog(kgrouplog.trace, "describe_group failing for {}", g);
+        return ss::make_ready_future<described_group>(
+          describe_groups_response::make_empty_described_group(
+            std::move(g), error_code::not_coordinator));
+    }
+    return with_scheduling_group(
+      _sg,
+      [this, g = std::move(g), m = std::move(m), unique = unique]() mutable {
+          return get_group_manager().invoke_on(
+            m->second,
+            _ssg,
+            [g = std::move(g), ntp = std::move(m->first), unique = unique](
+              group_manager& mgr) mutable {
+                auto start_time = ss::lowres_clock::now();
+                vlog(
+                  kgrouplog.trace,
+                  "describe_group inner begin for {} id:{}",
+                  g,
+                  unique);
+                try {
+                    auto res = mgr.describe_group(ntp, g);
+                    vlog(
+                      kgrouplog.trace,
+                      "describe_group inner success for {} in {} ms, id:{}",
+                      g,
+                      ss::lowres_clock::now() - start_time, unique);
+                    return res;
+                } catch (...) {
+                    vlog(
+                      kgrouplog.trace,
+                      "describe_group inner failure for {} in {} ms",
+                      g,
+                      ss::lowres_clock::now() - start_time);
+                    throw;
+                }
+            });
       });
 }
 

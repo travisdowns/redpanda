@@ -505,7 +505,10 @@ group::handle_join_group(join_group_request&& r, bool is_new_group) {
          * handles that before returning.
          */
         if (all_members_joined()) {
-            vlog(_ctx_glog.trace, "Finishing join with all members present");
+            vlog(
+              _ctx_glog.trace,
+              "Finishing join with all members present, count: {}",
+              _members.size());
             _join_timer.cancel();
             complete_join();
         }
@@ -960,13 +963,16 @@ void group::try_prepare_rebalance() {
 
         vlog(
           _ctx_glog.trace,
-          "Scheduling initial debounce join timer for {} ms",
-          initial);
+          "Scheduling initial debounce join timer for {} ms, remaining {} ms, "
+          "rebalance {} ms",
+          initial,
+          remaining,
+          rebalance);
 
         _join_timer.arm(initial);
 
     } else if (all_members_joined()) {
-        vlog(_ctx_glog.trace, "All members have joined");
+        vlog(_ctx_glog.trace, "All members have joined, group: {}", *this);
         complete_join();
 
     } else {
@@ -1157,7 +1163,8 @@ void group::try_finish_joining_member(
     }
 }
 
-void group::schedule_next_heartbeat_expiration(member_ptr member) {
+void group::schedule_next_heartbeat_expiration(
+  member_ptr member, bool from_offset_commit) {
     auto old_timeout = member->expire_timer().get_timeout();
     member->expire_timer().cancel();
     auto now = clock_type::now();
@@ -1169,10 +1176,12 @@ void group::schedule_next_heartbeat_expiration(member_ptr member) {
       });
     vlog(
       _ctx_glog.trace,
-      "Scheduling new heartbeat expiration {} ms for {}, buffer {} ms",
+      "Scheduling new heartbeat expiration {} ms for {}, buffer {} ms, "
+      "from_offset {}",
       member->session_timeout(),
       member->id(),
-      old_timeout - now);
+      old_timeout - now,
+      from_offset_commit);
     member->expire_timer().arm(deadline);
 }
 
@@ -1282,7 +1291,11 @@ void group::remove_member(member_ptr member) {
 }
 
 group::sync_group_stages group::handle_sync_group(sync_group_request&& r) {
-    vlog(_ctx_glog.trace, "Handling sync group request {}", r);
+    vlog(
+      _ctx_glog.trace,
+      "Handling sync group request for group {} with {} assignments",
+      r.data.group_id,
+      r.data.assignments.size());
 
     if (in_state(group_state::dead)) {
         vlog(_ctx_glog.trace, "Sync rejected for group state {}", _state);
@@ -2282,7 +2295,7 @@ group::handle_offset_commit(offset_commit_request&& r) {
         // request since we rely on heartbeat response to eventually notify the
         // rebalance in progress signal to the consumer</kafka>
         auto member = get_member(r.data.member_id);
-        schedule_next_heartbeat_expiration(member);
+        schedule_next_heartbeat_expiration(member, true);
         return store_offsets(std::move(r));
     } else if (in_state(group_state::completing_rebalance)) {
         return offset_commit_stages(
@@ -2377,7 +2390,11 @@ described_group group::describe() const {
 
     auto mc = _members.size();
     if (in_state(group_state::stable)) {
-        vlog(kgrouplog.trace, "group::describe stable {} members for {}", mc, this->id());
+        vlog(
+          kgrouplog.trace,
+          "group::describe stable {} members for {}",
+          mc,
+          this->id());
         if (!_protocol) {
             throw std::runtime_error(
               fmt::format("Stable group {} has no protocol", _id));
@@ -2387,7 +2404,11 @@ described_group group::describe() const {
             desc.members.push_back(it.second->describe(*_protocol));
         }
     } else {
-        vlog(kgrouplog.trace, "group::describe unstable {} members for {}", mc, this->id());
+        vlog(
+          kgrouplog.trace,
+          "group::describe unstable {} members for {}",
+          mc,
+          this->id());
         for (const auto& it : _members) {
             desc.members.push_back(it.second->describe_without_metadata());
         }
@@ -2628,7 +2649,7 @@ std::ostream& operator<<(std::ostream& o, const group& g) {
       timer_expires(g._join_timer));
 
     // limit member list output to this number to avoid gigantic log lines
-    constexpr size_t member_limit = 2;
+    constexpr size_t member_limit = 10;
 
     size_t mcount = 0;
     fmt::print(o, " {} pending members [", g._pending_members.size());
@@ -2638,7 +2659,7 @@ std::ostream& operator<<(std::ostream& o, const group& g) {
               o,
               "... {} more members not shown",
               g._pending_members.size() - mcount + 1);
-              break;
+            break;
         }
         fmt::print(o, "{} expires={} ", m.first, timer_expires(m.second));
     }
@@ -2651,7 +2672,7 @@ std::ostream& operator<<(std::ostream& o, const group& g) {
               o,
               "... {} more members not shown",
               g._members.size() - mcount + 1);
-              break;
+            break;
         }
         fmt::print(o, "{} ", m.second);
     }

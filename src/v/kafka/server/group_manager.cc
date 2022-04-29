@@ -329,7 +329,8 @@ ss::future<> group_manager::handle_partition_leader_change(
     if (leader_id != _self.id()) {
         vlog(
           kgrouplog.trace,
-          "handle_partition_leader_change not leader, leader: {} me: {}",
+          "handle_partition_leader_change for {} not leader, leader: {} me: {}",
+          p->partition->ntp(),
           leader_id,
           _self.id());
         p->loading = false;
@@ -343,7 +344,8 @@ ss::future<> group_manager::handle_partition_leader_change(
 
     vlog(
       kgrouplog.trace,
-      "handle_partition_leader_change became leader, id: {}, timeout: {}",
+      "handle_partition_leader_change became leader for {}, id: {}, timeout: {}",
+      p->partition->ntp(),
       _self.id(),
       timeout_duration);
     /*

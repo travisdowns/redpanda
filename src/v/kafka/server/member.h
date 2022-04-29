@@ -17,6 +17,7 @@
 #include "kafka/protocol/sync_group.h"
 #include "kafka/server/group_metadata.h"
 #include "kafka/types.h"
+#include "vassert.h"
 
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -134,6 +135,7 @@ public:
      * NOTE: the caller must ensure that the member is not already joining.
      */
     ss::future<join_group_response> get_join_response() {
+        vassert(!_join_promise, "_join_promise promise overwritten");
         _join_promise = std::make_unique<join_promise>();
         return _join_promise->get_future();
     }

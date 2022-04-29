@@ -448,7 +448,7 @@ public:
       member_ptr member, join_group_response&& response);
 
     /// Restart the member heartbeat timer.
-    void schedule_next_heartbeat_expiration(member_ptr member);
+    void schedule_next_heartbeat_expiration(member_ptr member, bool from_offset_commit = false);
 
     /// Removes a full member and may rebalance.
     void remove_member(member_ptr member);
