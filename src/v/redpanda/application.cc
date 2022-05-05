@@ -229,6 +229,7 @@ void application::initialize(
         syschecks::pidfile_create(config::node().pidfile_path());
     }
     smp_groups::config smp_groups_cfg{
+      .kafka_group_max_non_local_requests = 100000,
       .raft_group_max_non_local_requests
       = config::shard_local_cfg().raft_smp_max_non_local_requests(),
     };
