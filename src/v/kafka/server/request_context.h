@@ -44,6 +44,7 @@ struct request_header {
     correlation_id correlation;
     ss::temporary_buffer<char> client_id_buffer;
     std::optional<std::string_view> client_id;
+    kafka::request_ts_type first_byte_ts;
 
     friend std::ostream& operator<<(std::ostream&, const request_header&);
 };

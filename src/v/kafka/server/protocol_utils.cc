@@ -23,6 +23,11 @@ ss::future<std::optional<request_header>>
 parse_header(ss::input_stream<char>& src) {
     constexpr int16_t no_client_id = -1;
 
+    // roughly the time we retrieved the first bytes from the input
+    // stream for the currrent request (at this point we've retrieved
+    // the 4 bytes from the size already).
+    auto first_byte_ts = std::chrono::high_resolution_clock::now();
+
     auto buf = co_await src.read_exactly(request_header_size);
 
     if (src.eof()) {
@@ -37,6 +42,7 @@ parse_header(ss::input_stream<char>& src) {
     header.key = api_key(reader.read_int16());
     header.version = api_version(reader.read_int16());
     header.correlation = correlation_id(reader.read_int32());
+    header.first_byte_ts = first_byte_ts;
     auto client_id_size = reader.read_int16();
 
     if (client_id_size == 0) {
