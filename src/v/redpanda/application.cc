@@ -158,6 +158,23 @@ static void log_system_resources(
     }
 }
 
+static void seastar_arg_hack(ss::logger& log, int ac, char** av){
+    static constexpr auto seastar_args = {
+        std::string_view("--abort-on-seastar-bad-alloc=")
+    };
+    for (int i = 0; i < ac; i++) {
+        auto onearg = std::string(av[i]);
+        for (auto ssarg : seastar_args) {
+            if (onearg.starts_with(ssarg)) {
+                vlog(
+                log.info, "Substituting {} for {}", ssarg, onearg);
+                av[i][ssarg.size() - 1] = '\0';
+            }
+        }
+    }
+
+}
+
 int application::run(int ac, char** av) {
     init_env();
     vlog(_log.info, "Redpanda {}", redpanda_version());
@@ -174,6 +191,8 @@ int application::run(int ac, char** av) {
       "redpanda-cfg",
       po::value<std::string>(),
       ".yaml file config for redpanda");
+
+    seastar_arg_hack(_log, ac, av);
 
     // Validate command line args using options registered by the app and
     // seastar
