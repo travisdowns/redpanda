@@ -74,7 +74,9 @@ ss::future<> leader_balancer::start() {
     _leader_notify_handle
       = _group_manager.local().register_leadership_notification(
         [this](
-          raft::group_id group, model::term_id, std::optional<model::node_id>) {
+          raft::group_id group,
+          model::term_id term,
+          std::optional<model::node_id> leader) {
             if (group != _raft0->group()) {
                 return;
             }
@@ -95,7 +97,9 @@ ss::future<> leader_balancer::start() {
                 if (_enabled()) {
                     vlog(
                       clusterlog.info,
-                      "Leader balancer: node is not controller leader");
+                      "Leader balancer: not leader, term {} leader is {}",
+                      term,
+                      leader.value_or(model::node_id(-1)));
                 }
                 _need_controller_refresh = true;
                 _timer.cancel();
