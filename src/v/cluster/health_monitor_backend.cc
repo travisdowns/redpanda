@@ -232,6 +232,7 @@ void health_monitor_backend::abortable_refresh_request::abort() {
     if (finished) {
         return;
     }
+    vlog(clusterlog.info, "aborting current refresh request to {}", leader_id);
     finished = true;
     done.set_value(errc::leadership_changed);
 }
@@ -271,6 +272,11 @@ template<typename T>
 static long to_micros(T duration) {
     return std::chrono::duration_cast<std::chrono::microseconds>(duration)
       .count();
+}
+
+static long
+elapsed_micros(std::chrono::high_resolution_clock::time_point start_ts) {
+    return to_micros(std::chrono::high_resolution_clock::now() - start_ts);
 }
 
 static thread_local int wait_count;
@@ -317,7 +323,7 @@ health_monitor_backend::refresh_cluster_health_cache(force_refresh force) {
     vlog(
       clusterlog.info,
       "HMB waited {} us for refresh mutex wait_count {} leader {}",
-      to_micros(std::chrono::high_resolution_clock::now() - mutex_ts),
+      elapsed_micros(mutex_ts),
       wait_count,
       leader_id.value_or(model::node_id(-1)));
 
@@ -331,7 +337,7 @@ health_monitor_backend::refresh_cluster_health_cache(force_refresh force) {
     auto now = model::timeout_clock::now();
     if (!force && now - _last_refresh < max_metadata_age()) {
         vlog(
-          clusterlog.trace,
+          clusterlog.info,
           "skipping metadata refresh request current metadata age: {} ms",
           (now - _last_refresh) / 1ms);
         co_return errc::success;
@@ -352,6 +358,7 @@ health_monitor_backend::dispatch_refresh_cluster_health_request(
   model::node_id node_id) {
     const auto timeout = model::timeout_clock::now() + max_metadata_age();
     vlog(clusterlog.info, "HMB dispatch_refresh_cluster_health_request");
+    auto request_start = std::chrono::high_resolution_clock::now();
     auto reply = co_await _connections.local()
                    .with_node_client<controller_client_protocol>(
                      _raft0->self().id(),
@@ -359,15 +366,19 @@ health_monitor_backend::dispatch_refresh_cluster_health_request(
                      node_id,
                      max_metadata_age(),
                      [timeout](controller_client_protocol client) mutable {
-                         vlog(
-                           clusterlog.info,
-                           "HMB get_cluster_health_report");
+                         vlog(clusterlog.info, "HMB get_cluster_health_report");
                          get_cluster_health_request req{
                            .filter = cluster_report_filter{}};
                          return client.get_cluster_health_report(
                            std::move(req), rpc::client_opts(timeout));
                      })
                    .then(&rpc::get_ctx_data<get_cluster_health_reply>);
+
+    vlog(
+      clusterlog.info,
+      "HMB dispatch_refresh_cluster_health_request finished after {} us error {}",
+      elapsed_micros(request_start),
+      reply.has_failure());
 
     if (!reply) {
         vlog(
@@ -387,7 +398,8 @@ health_monitor_backend::dispatch_refresh_cluster_health_request(
         co_return make_error_code(reply.value().error);
     }
 
-    vlog(clusterlog.info, "HMB dispatch_refresh_cluster_health_request SUCCESS");
+    vlog(
+      clusterlog.info, "HMB dispatch_refresh_cluster_health_request SUCCESS");
 
     _status.clear();
     for (auto& n_status : reply.value().report->node_states) {
@@ -406,10 +418,6 @@ health_monitor_backend::dispatch_refresh_cluster_health_request(
 
 void health_monitor_backend::abort_current_refresh() {
     if (_refresh_request) {
-        vlog(
-          clusterlog.info,
-          "aborting current refresh request to {}",
-          _refresh_request->leader_id);
         _refresh_request->abort();
     }
 }
@@ -426,17 +434,33 @@ void health_monitor_backend::on_leadership_changed(
     abort_current_refresh();
 }
 
+static thread_local int bt_counter;
+static constexpr int bt_every = 977;
+
 ss::future<result<cluster_health_report>>
 health_monitor_backend::get_cluster_health(
   cluster_report_filter filter,
   force_refresh refresh,
-  model::timeout_clock::time_point deadline) {
+  model::timeout_clock::time_point deadline,
+  const char* reason) {
     vlog(
-      clusterlog.debug,
-      "requesing cluster state report with filter: {}, force refresh: {}",
+      clusterlog.info,
+      "requesting cluster state report reason: {} with filter: {}, force "
+      "refresh: {}",
+      reason,
       filter,
       refresh);
+
+    if (++bt_counter == bt_every) {
+        vlog(
+          clusterlog.info,
+          "get_cluster_health backtrace: {}",
+          ss::current_backtrace_tasklocal());
+        bt_counter = 0;
+    }
+
     auto ec = co_await maybe_refresh_cluster_health(refresh, deadline);
+    vlog(clusterlog.info, "get_cluster_health result: {}", ec);
     if (ec) {
         co_return ec;
     }
@@ -742,6 +766,7 @@ std::chrono::milliseconds health_monitor_backend::max_metadata_age() {
 ss::future<result<std::optional<cluster::drain_manager::drain_status>>>
 health_monitor_backend::get_node_drain_status(
   model::node_id node_id, model::timeout_clock::time_point deadline) {
+    vlog(clusterlog.info, "HMB get_node_drain_status");
     auto ec = co_await maybe_refresh_cluster_health(
       force_refresh::no, deadline);
     if (ec) {
