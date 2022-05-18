@@ -287,7 +287,7 @@ connection_context::dispatch_method_once(request_header hdr, size_t size) {
               }
               auto self = shared_from_this();
               auto rctx = request_context(
-                self, std::move(hdr), std::move(buf), sres.backpressure_delay);
+                self, std::move(hdr), std::move(buf), sres.backpressure_delay, (int)sres.memlocks.count());
               /*
                * we process requests in order since all subsequent requests
                * are dependent on authentication having completed.
