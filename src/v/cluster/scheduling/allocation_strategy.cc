@@ -20,6 +20,7 @@
 #include "model/fundamental.h"
 #include "model/metadata.h"
 #include "vassert.h"
+#include "random/generators.h"
 
 namespace cluster {
 
@@ -80,6 +81,8 @@ model::node_id find_best_fit(
         return best_fit;
     }
 
+    std::vector<model::node_id> best_fits;
+
     for (const auto& id : possible_nodes) {
         auto it = nodes.find(id);
         if (it == nodes.end()) {
@@ -95,13 +98,21 @@ model::node_id find_best_fit(
             const allocation_constraints::soft_constraint_ev_ptr& ev) {
               return score + ev->score(*node);
           });
-        if (score > last_score) {
-            last_score = score;
-            best_fit = it->first;
+
+        if (score >= last_score) {
+            if (score > last_score) {
+                last_score = score;
+                best_fits.clear();
+            }
+            best_fits.push_back(it->first);
         }
     }
 
-    return best_fit;
+    vassert(!best_fits.empty(), "best_fits empty");
+
+    // vlog(clusterlog.info, "best fits: {}", best_fits);
+
+    return best_fits.at(random_generators::get_int(best_fits.size() - 1));
 }
 
 allocation_strategy simple_allocation_strategy() {
