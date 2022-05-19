@@ -481,6 +481,7 @@ ss::future<response_ptr> metadata_handler::handle(
     }
 
     auto resp = co_await ctx.respond(std::move(reply));
+    resp->set_units(std::move(units));
 
     co_return resp;
 }
