@@ -67,7 +67,6 @@ group::group(
   , _partition(std::move(partition))
   , _recovery_policy(
       config::shard_local_cfg().rm_violation_recovery_policy.value())
-  , _ctxlog(klog, *this)
   , _ctx_glog(kgrouplog, *this)
   , _ctx_txlog(cluster::txlog, *this)
   , _md_serializer(std::move(serializer))
@@ -87,7 +86,6 @@ group::group(
   , _partition(std::move(partition))
   , _recovery_policy(
       config::shard_local_cfg().rm_violation_recovery_policy.value())
-  , _ctxlog(klog, *this)
   , _ctx_glog(kgrouplog, *this)
   , _ctx_txlog(cluster::txlog, *this)
   , _md_serializer(std::move(serializer))
@@ -1493,7 +1491,7 @@ group::sync_group_stages group::sync_group_completing_rebalance(
                      !in_state(group_state::completing_rebalance)
                      || expected_generation != generation()) {
                        vlog(
-                         _ctxlog.trace,
+                         _ctx_glog.trace,
                          "Group state changed while completing sync");
                        return std::move(response);
                    }
@@ -1507,10 +1505,10 @@ group::sync_group_stages group::sync_group_completing_rebalance(
                        set_assignments(std::move(assignments));
                        finish_syncing_members(error_code::none);
                        set_state(group_state::stable);
-                       vlog(_ctxlog.trace, "Successfully completed group sync");
+                       vlog(_ctx_glog.trace, "Successfully completed group sync");
                    } else {
                        vlog(
-                         _ctxlog.trace,
+                         _ctx_glog.trace,
                          "An error occurred completing group sync {}",
                          r.error());
                        // an error was encountered persisting the group state:
@@ -1641,7 +1639,7 @@ kafka::error_code group::member_leave_group(
                  member_id, group_instance_id, "leave");
                ec != error_code::none) {
         vlog(
-          _ctx_glog.trace,
+          _ctx_glog.debug,
           "Leave rejected for invalid member {} - {}",
           member_id,
           ec);
