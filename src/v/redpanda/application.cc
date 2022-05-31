@@ -158,21 +158,18 @@ static void log_system_resources(
     }
 }
 
-static void seastar_arg_hack(ss::logger& log, int ac, char** av){
+static void seastar_arg_hack(ss::logger& log, int ac, char** av) {
     static constexpr auto seastar_args = {
-        std::string_view("--abort-on-seastar-bad-alloc=")
-    };
+      std::string_view("--abort-on-seastar-bad-alloc=")};
     for (int i = 0; i < ac; i++) {
         auto onearg = std::string(av[i]);
         for (auto ssarg : seastar_args) {
             if (onearg.starts_with(ssarg)) {
-                vlog(
-                log.info, "Substituting {} for {}", ssarg, onearg);
+                vlog(log.info, "Substituting {} for {}", ssarg, onearg);
                 av[i][ssarg.size() - 1] = '\0';
             }
         }
     }
-
 }
 
 int application::run(int ac, char** av) {
@@ -258,7 +255,7 @@ void application::initialize(
     }).get0();
 
     ss::smp::invoke_on_all([] {
-        ss::memory::set_large_allocation_warning_threshold(1000 * 1000);
+        ss::memory::set_large_allocation_warning_threshold(10 * 1000 * 1000);
     }).get();
 
     if (config::shard_local_cfg().enable_pid_file()) {
