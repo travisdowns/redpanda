@@ -180,30 +180,69 @@ ss::future<> segment_index::truncate(model::offset o) {
     co_return co_await flush();
 }
 
+/**
+ *
+ * @return true if decoded without errors, false on a serialization error
+ *         while loading.  On all other types of error (e.g. IO), throw.
+ */
 ss::future<bool> segment_index::materialize_index() {
     auto f = co_await open();
-    auto size = co_await f.size();
-    auto buf = co_await f.dma_read_bulk<char>(0, size);
-    if (buf.empty()) {
-        co_return false;
-    }
-    iobuf b;
-    b.append(std::move(buf));
+
+    bool decoded_ok = false;
+    std::exception_ptr ex;
     try {
-        _state = serde::from_iobuf<index_state>(std::move(b));
-        co_return true;
-    } catch (const serde::serde_exception& ex) {
-        vlog(
-          stlog.info,
-          "Rebuilding index_state after decoding failure: {}",
-          ex.what());
-        co_return false;
+        auto size = co_await f.size();
+        auto buf = co_await f.dma_read_bulk<char>(0, size);
+        if (buf.empty()) {
+            co_await f.close();
+            co_return false;
+        }
+        iobuf b;
+        b.append(std::move(buf));
+        try {
+            _state = serde::from_iobuf<index_state>(std::move(b));
+            decoded_ok = true;
+        } catch (const serde::serde_exception& ex) {
+            vlog(
+              stlog.info,
+              "Rebuilding index_state after decoding failure: {}",
+              ex.what());
+        }
+    } catch (...) {
+        ex = std::current_exception();
+    }
+
+    try {
+        co_await f.close();
+    } catch (...) {
+        if (!ex) {
+            // Swallow the close exception if we already had an earlier
+            // exception: the earlier one is likely to be more informative.
+            throw;
+        }
+    }
+
+    if (ex) {
+        throw ex;
+    } else {
+        co_return decoded_ok;
     }
 }
 
 ss::future<> segment_index::drop_all_data() {
     reset();
-    co_return co_await (co_await open()).truncate(0);
+    auto f = co_await open();
+
+    std::exception_ptr e;
+    try {
+        co_await f.truncate(0);
+    } catch (...) {
+        e = std::current_exception();
+    }
+    co_await f.close();
+    if (e) {
+        throw e;
+    }
 }
 
 ss::future<> segment_index::flush() {
@@ -213,14 +252,31 @@ ss::future<> segment_index::flush() {
     _needs_persistence = false;
     auto backing_file = co_await open();
     co_await backing_file.truncate(0);
-    auto out = co_await ss::make_file_output_stream(
-      ss::file(backing_file.dup()));
-    auto b = serde::to_iobuf(_state.copy());
-    for (const auto& f : b) {
-        co_await out.write(f.get(), f.size());
+    auto out = co_await ss::make_file_output_stream(std::move(backing_file));
+
+    std::exception_ptr ex;
+    try {
+        auto b = serde::to_iobuf(_state.copy());
+        for (const auto& f : b) {
+            co_await out.write(f.get(), f.size());
+        }
+        co_await out.flush();
+    } catch (...) {
+        ex = std::current_exception();
     }
-    co_await out.flush();
-    co_await out.close();
+
+    // Close, swallowing exception if ex is already set
+    try {
+        co_await out.close();
+    } catch (...) {
+        if (!ex) {
+            throw;
+        }
+    }
+
+    if (ex) {
+        throw ex;
+    }
 }
 ss::future<> segment_index::close() { co_await flush(); }
 std::ostream& operator<<(std::ostream& o, const segment_index& i) {
