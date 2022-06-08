@@ -11,18 +11,39 @@
 #include "net/dns.h"
 
 #include "net/unresolved_address.h"
+#include "rpc/logger.h"
 #include "utils/mutex.h"
+#include "vlog.h"
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/net/dns.hh>
+#include <seastar/util/defer.hh>
+
+#include <__chrono/duration.h>
+
+#include <chrono>
 
 namespace net {
 
 ss::future<ss::socket_address> resolve_dns(unresolved_address address) {
     static thread_local ss::net::dns_resolver resolver;
     static thread_local mutex m;
+
     // lock
     auto units = co_await m.get_units();
+    auto before_ts = std::chrono::high_resolution_clock::now();
+
+    auto defer_log = ss::defer([before_ts, address] {
+        auto duration = std::chrono::high_resolution_clock::now() - before_ts;
+        auto duration_us
+          = std::chrono::duration_cast<std::chrono::microseconds>(duration);
+        vlog(
+          rpc::rpclog.warn,
+          "resolve_dns {} ms for {}",
+          duration_us.count() / 1000.,
+          address);
+    });
+
     // resolve
     auto i_a = co_await resolver.resolve_name(address.host(), address.family());
 
