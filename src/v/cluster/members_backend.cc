@@ -275,7 +275,7 @@ void members_backend::calculate_reallocations_after_node_added(
         // allocated with new cluster capacity
         if (metadata.get_revision() > meta.update.offset()) {
             vlog(
-              clusterlog.debug,
+              partlog.info,
               "skipping reallocating topic {}, its revision {} is greater than "
               "node update {}",
               tp_ns,
@@ -305,6 +305,11 @@ void members_backend::calculate_reallocations_after_node_added(
             }
         }
     }
+
+    vlog(
+      partlog.info,
+      "Generated {} reallocations",
+      meta.partition_reallocations.size());
 }
 
 ss::future<> members_backend::reconcile() {
@@ -328,7 +333,7 @@ ss::future<> members_backend::reconcile() {
       || barrier_result.value() < _raft0->dirty_offset()) {
         if (!barrier_result) {
             vlog(
-              clusterlog.debug,
+              partlog.info,
               "error waiting for all raft0 updates to be applied - {}",
               barrier_result.error().message());
 
@@ -373,7 +378,7 @@ ss::future<> members_backend::reconcile() {
         calculate_reallocations(meta);
         // if there is nothing to reallocate, just finish this update
         vlog(
-          clusterlog.info,
+          partlog.info,
           "[update: {}] calculated reallocations: {}",
           meta.update,
           meta.partition_reallocations);
@@ -386,7 +391,7 @@ ss::future<> members_backend::reconcile() {
                 meta.finished = true;
             }
             vlog(
-              clusterlog.debug,
+              partlog.info,
               "[update: {}] no need reallocations, finished: {}",
               meta.update,
               meta.finished);
