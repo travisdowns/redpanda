@@ -59,6 +59,10 @@ public:
         _units = std::move(units);
     }
 
+    std::optional<ss::semaphore_units<>>& get_units() {
+        return _units;
+    }
+
 private:
     bool _noop{false};
     correlation_id _correlation;

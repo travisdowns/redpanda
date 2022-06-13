@@ -287,7 +287,11 @@ connection_context::dispatch_method_once(request_header hdr, size_t size) {
               }
               auto self = shared_from_this();
               auto rctx = request_context(
-                self, std::move(hdr), std::move(buf), sres.backpressure_delay, (int)sres.memlocks.count());
+                self,
+                std::move(hdr),
+                std::move(buf),
+                sres.backpressure_delay,
+                (int)sres.memlocks.count());
               /*
                * we process requests in order since all subsequent requests
                * are dependent on authentication having completed.
@@ -405,12 +409,15 @@ ss::future<> connection_context::process_next_response() {
               ss::stop_iteration::no);
         }
 
+        auto memory_units = std::move(r->get_units());
+
         auto msg = response_as_scattered(std::move(r));
         try {
-            return _rs.conn->write(std::move(msg)).then([] {
-                return ss::make_ready_future<ss::stop_iteration>(
-                  ss::stop_iteration::no);
-            });
+            return _rs.conn->write(std::move(msg))
+              .then([memory_units = std::move(memory_units)] {
+                  return ss::make_ready_future<ss::stop_iteration>(
+                    ss::stop_iteration::no);
+              });
         } catch (...) {
             vlog(
               klog.debug,
