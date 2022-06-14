@@ -648,6 +648,9 @@ group::join_group_stages group::update_static_member_and_rebalance(
                         new_member_id,
                         std::move(md));
                       try_finish_joining_member(member, std::move(reply));
+                  })
+                  .then([group = shared_from_this()] {
+                      // keep the group alive while the background task runs
                   });
             return join_group_stages(std::move(f));
         } else {
@@ -1106,7 +1109,8 @@ void group::complete_join() {
             ssx::background
               = store_group(checkpoint(assignments_type{}))
                   .then(
-                    []([[maybe_unused]] result<raft::replicate_result> r) {});
+                    [this_group = shared_from_this()](
+                      [[maybe_unused]] result<raft::replicate_result> r) {});
         } else {
             std::for_each(
               std::cbegin(_members),

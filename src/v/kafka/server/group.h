@@ -131,7 +131,7 @@ struct group_stats;
 /// \brief A Kafka group.
 ///
 /// Container of members.
-class group {
+class group : public ss::enable_lw_shared_from_this<group> {
 public:
     using clock_type = ss::lowres_clock;
     using duration_type = clock_type::duration;
