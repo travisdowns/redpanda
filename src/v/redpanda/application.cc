@@ -91,6 +91,7 @@
 #include "vlog.h"
 
 #include <seastar/core/abort_source.hh>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/prometheus.hh>
@@ -98,11 +99,13 @@
 #include <seastar/core/sharded.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/timer.hh>
 #include <seastar/json/json_elements.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/util/conversions.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/memory_diagnostics.hh>
 
 #include <sys/resource.h>
 #include <sys/utsname.h>
@@ -381,6 +384,22 @@ void application::initialize(
   std::optional<YAML::Node> schema_reg_cfg,
   std::optional<YAML::Node> schema_reg_client_cfg,
   std::optional<scheduling_groups> groups) {
+    ss::smp::invoke_on_all([this] {
+        // turn on heap profiling
+        ss::memory::set_heap_profiling_enabled(true, 1021);
+
+        // a periodic logger with heap details
+        auto timer = new ss::timer<ss::lowres_clock>{}; // leak
+        timer->set_callback([this, counter = 0]() mutable {
+            vlog(
+              _log.info,
+              "Memory dump {}:\n{}",
+              counter++,
+              ss::memory::generate_heap_profile(20));
+        });
+        timer->arm_periodic(std::chrono::seconds(60));
+    }).get0();
+
     // Set up the abort_on_oom value based on the associated cluster config
     // property, and watch for changes.
     _abort_on_oom
