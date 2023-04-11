@@ -72,14 +72,17 @@ replicate_batcher::cache_and_wait_for_result(
          * replicate batcher stop method
          *
          */
-        ssx::background
-          = ssx::spawn_with_gate_then(_bg, [this]() {
-                return _lock.get_units().then([this](auto units) {
-                    return flush(std::move(units), false);
+        if (!_flush_pending) {
+            _flush_pending = true;
+            ssx::background
+              = ssx::spawn_with_gate_then(_bg, [this]() {
+                    return _lock.get_units().then([this](auto units) {
+                        return flush(std::move(units), false);
+                    });
+                }).handle_exception([item](const std::exception_ptr& e) {
+                    item->set_exception(e);
                 });
-            }).handle_exception([item](const std::exception_ptr& e) {
-                item->set_exception(e);
-            });
+        }
     } catch (...) {
         // exception in caching phase
         enqueued.set_to_current_exception();
@@ -178,6 +181,7 @@ replicate_batcher::do_cache_with_backpressure(
 
 ss::future<> replicate_batcher::flush(
   ssx::semaphore_units batcher_units, bool const transfer_flush) {
+    _flush_pending = false;
     auto item_cache = std::exchange(_item_cache, {});
     if (item_cache.empty()) {
         co_return;
