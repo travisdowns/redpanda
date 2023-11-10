@@ -18,6 +18,8 @@
 
 #include <seastar/core/metrics.hh>
 
+#include <chrono>
+
 namespace kafka {
 class latency_probe {
 public:
@@ -55,6 +57,21 @@ public:
              labels,
              [this] { return _produce_latency.internal_histogram_logform(); })
              .aggregate(aggregate_labels)});
+
+        _metrics.add_group(
+          prometheus_sanitize::metrics_name("kafka_throttle"),
+          {sm::make_counter(
+             "count",
+             [this] { return _throttle_count; },
+             sm::description(
+               "Number of times a kafka request has been throttled"),
+             {}),
+
+           sm::make_histogram(
+             "_histogram",
+             sm::description("Throttle latency histo"),
+             labels,
+             [this] { return _fetch_latency.internal_histogram_logform(); })});
     }
 
     void setup_public_metrics() {
@@ -89,9 +106,14 @@ public:
         _fetch_latency.record(micros.count());
     }
 
+    size_t _throttle_count{};
+    std::chrono::microseconds _throttle_time_us{};
+    hist_t _throttle_time;
+
 private:
     hist_t _produce_latency;
     hist_t _fetch_latency;
+
     ss::metrics::metric_groups _metrics;
     ss::metrics::metric_groups _public_metrics{
       ssx::metrics::public_metrics_handle};

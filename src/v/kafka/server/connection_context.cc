@@ -356,10 +356,21 @@ ss::future<>
 connection_context::dispatch_method_once(request_header hdr, size_t size) {
     // clang-tidy 16.0.4 is reporting an erroneous 'use-after-move' error when
     // calling `then` after `throttle_request`.
-    auto sres_in = throttle_request(hdr, size);
+    ss::future<session_resources> sres_in = throttle_request(hdr, size);
+
+    std::unique_ptr<latency_probe::hist_t::measurement> throttle_timer;
+
+    if (!sres_in.available()) {
+        server().latency_probe()._throttle_count += 1;
+        throttle_timer = server().latency_probe()._throttle_time.auto_measure();
+    }
+
     return sres_in
-      .then([this, hdr = std::move(hdr), size](
-              session_resources sres_in) mutable {
+      .then([this,
+             hdr = std::move(hdr),
+             throttle_timer = std::move(throttle_timer),
+             size](session_resources sres_in) mutable {
+          throttle_timer.reset();
           if (abort_requested()) {
               // protect against shutdown behavior
               return ss::make_ready_future<>();
