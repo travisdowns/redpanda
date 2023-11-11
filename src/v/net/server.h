@@ -134,7 +134,6 @@ public:
     ss::future<> stop();
 
     const server_configuration cfg; // NOLINT
-    const hist_t& histogram() const { return _hist; }
 
     virtual std::string_view name() const = 0;
     virtual ss::future<> apply(ss::lw_shared_ptr<net::connection>) = 0;
