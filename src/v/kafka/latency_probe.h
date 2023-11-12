@@ -47,12 +47,23 @@ public:
           {
             sm::make_histogram(
               "fetch_latency_us",
-              sm::description("Fetch Latency"),
+              sm::description(
+                "Measures the intenrnal latency of fetching from one "
+                "partition during a fetch request, whether or not any data was "
+                "returned from the partition. "
+                "A fetch request may be composed of many partition fetches and "
+                "the request latency may be much larger than this "
+                "internal latency."),
               labels,
               [this] { return _fetch_latency.internal_histogram_logform(); }),
             sm::make_histogram(
               "produce_latency_us",
-              sm::description("Produce Latency"),
+              sm::description("Measures the intenrnal latency of producing one "
+                              "batch to a partition during a produce request. "
+                              "A produce request may "
+                              "be composed of many batches and the request "
+                              "latency may be much larger than this "
+                              "internal latency."),
               labels,
               [this] { return _produce_latency.internal_histogram_logform(); }),
           },
