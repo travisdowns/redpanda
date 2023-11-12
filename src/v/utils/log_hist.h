@@ -156,6 +156,17 @@ public:
         _counts[i]++;
     }
 
+    /**
+     * @brief Add the given histogram to this one.
+     *
+     * Add all the counts of the other histogram to this one so that
+     * this histogram becomes the sum of all records of both histograms.
+     * The other histogram is unaffected.
+     *
+     * @param other the histogram to add to this one
+     */
+    void add(const log_hist& other);
+
     template<int64_t _scale, uint64_t _first_bucket_bound, int _bucket_count>
     struct logform_config {
         static constexpr auto bound_is_pow_2 = _first_bucket_bound >= 1

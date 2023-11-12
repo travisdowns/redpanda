@@ -15,6 +15,24 @@ template<
   typename duration_t,
   int number_of_buckets,
   uint64_t first_bucket_upper_bound>
+void log_hist<duration_t, number_of_buckets, first_bucket_upper_bound>::add(
+  const log_hist& other) {
+    static_assert(
+      sizeof(log_hist)
+        == sizeof(_counts) + sizeof(_canary) + sizeof(_sample_sum),
+      "log_hist members or layout have changed, this function may need to be "
+      "updated");
+
+    _sample_sum += other._sample_sum;
+    for (size_t i = 0; i < _counts.size(); ++i) {
+        _counts[i] += other._counts[i];
+    }
+}
+
+template<
+  typename duration_t,
+  int number_of_buckets,
+  uint64_t first_bucket_upper_bound>
 template<typename cfg>
 seastar::metrics::histogram
 log_hist<duration_t, number_of_buckets, first_bucket_upper_bound>::

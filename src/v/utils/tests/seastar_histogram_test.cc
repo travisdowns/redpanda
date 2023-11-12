@@ -11,6 +11,40 @@
 #include <cstdint>
 #include <random>
 
+namespace {
+
+void check_equal(const auto& a, const auto& b) {
+    using sshist = seastar::metrics::histogram;
+    const sshist logform_a = a.internal_histogram_logform();
+    const sshist logform_b = b.internal_histogram_logform();
+
+    BOOST_REQUIRE_EQUAL(logform_a.buckets.size(), logform_b.buckets.size());
+
+    for (size_t idx = 0; idx < logform_a.buckets.size(); ++idx) {
+        auto &ba = logform_a.buckets[idx], &bb = logform_b.buckets[idx];
+        BOOST_CHECK_EQUAL(ba.upper_bound, bb.upper_bound);
+        BOOST_CHECK_EQUAL(ba.count, bb.count);
+    }
+
+    BOOST_CHECK_EQUAL(logform_a.sample_sum, logform_b.sample_sum);
+}
+
+/**
+ * @brief Call the given functor n times with a random uint64_t.
+ * Selected from the range [1, 2^25].
+ */
+template<typename F>
+void random_samples(size_t n, F fn) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint64_t> d(1, (1 << (8 + 17)) - 1);
+
+    for (size_t i = 0; i < n; i++) {
+        fn(d(gen));
+    }
+}
+} // namespace
+
 SEASTAR_THREAD_TEST_CASE(test_seastar_histograms_match) {
     using namespace std::chrono_literals;
 
@@ -82,15 +116,10 @@ SEASTAR_THREAD_TEST_CASE(test_public_log_hist_and_hdr_hist_equal_rand) {
     hdr_hist a;
     log_hist_public b;
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<uint64_t> d(1, (1 << (8 + 17)) - 1);
-
-    for (unsigned i = 0; i < 1'000'000; i++) {
-        auto sample = d(gen);
+    random_samples(1'000'000, [&](uint64_t sample) {
         a.record(sample);
         b.record(sample);
-    }
+    });
 
     validate_public_histograms_equal(a, b);
 }
@@ -193,4 +222,27 @@ SEASTAR_THREAD_TEST_CASE(test_log_hist_measure_pause) {
 
     auto hist = a.internal_histogram_logform();
     BOOST_CHECK_EQUAL(hist.buckets.back().count, 2);
+}
+
+// tests log_hist::add by checking that adding together two histograms which
+// each receive half the random samples is the same as a histogram which
+// received all the samples
+SEASTAR_THREAD_TEST_CASE(test_log_hist_add) {
+    log_hist_internal odd, even, all;
+
+    random_samples(1'000'000, [&](uint64_t sample) {
+        if (sample % 2) {
+            odd.record(sample);
+        } else {
+            even.record(sample);
+        }
+        all.record(sample);
+    });
+
+    // create the sum of odd and even histograms
+    auto sum = log_hist_internal{};
+    sum.add(even);
+    sum.add(odd);
+
+    check_equal(all, sum);
 }
