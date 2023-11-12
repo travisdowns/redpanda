@@ -25,6 +25,7 @@ PERF_TEST(hdr_hist, record) {
     }
     perf_tests::stop_measuring_time();
     perf_tests::do_not_optimize(h.seastar_histogram_logform());
+    return number_of_values_to_record;
 }
 
 PERF_TEST(log_hist, record) {
@@ -36,4 +37,5 @@ PERF_TEST(log_hist, record) {
     }
     perf_tests::stop_measuring_time();
     perf_tests::do_not_optimize(h.internal_histogram_logform());
+    return number_of_values_to_record;
 }
