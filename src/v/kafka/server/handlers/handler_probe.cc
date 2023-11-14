@@ -16,7 +16,9 @@
 #include "kafka/protocol/schemata/produce_request.h"
 #include "kafka/server/handlers/handler_interface.h"
 #include "kafka/server/logger.h"
+#include "kafka/server/server.h"
 #include "prometheus/prometheus_sanitize.h"
+#include "utils/log_hist.h"
 
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/core/metrics.hh>
@@ -24,6 +26,7 @@
 
 #include <chrono>
 #include <memory>
+#include <type_traits>
 
 namespace kafka {
 
@@ -42,6 +45,25 @@ handler_probe_manager::handler_probe_manager()
             }
         }
     }
+
+    auto produce_fetch_hist = [this](auto is_internal) {
+        log_hist_internal ret;
+        ret.add(_probes[produce_api::key]._latency);
+        ret.add(_probes[fetch_api::key]._latency);
+        if constexpr (is_internal) {
+            return ret.internal_histogram_logform();
+        } else {
+            return ret.public_histogram_logform();
+        }
+    };
+
+    net::make_latency_metric("kafka_rpc", _metrics, [=] {
+        return produce_fetch_hist(std::true_type{});
+    });
+
+    net::make_latency_metric("kafka_rpc", _public_metrics, [=] {
+        return produce_fetch_hist(std::false_type{});
+    });
 }
 
 handler_probe& handler_probe_manager::get_probe(api_key key) {

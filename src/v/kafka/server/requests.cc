@@ -259,17 +259,6 @@ handle_auth(request_context&& ctx, ss::smp_service_group g) {
     }
 }
 
-// only track latency for push and fetch requests
-bool track_latency(api_key key) {
-    switch (key) {
-    case fetch_api::key:
-    case produce_api::key:
-        return true;
-    default:
-        return false;
-    }
-}
-
 process_result_stages process_request(
   request_context&& ctx,
   ss::smp_service_group g,

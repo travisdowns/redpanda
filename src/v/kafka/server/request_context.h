@@ -442,6 +442,4 @@ private:
 process_result_stages process_request(
   request_context&&, ss::smp_service_group, const session_resources&);
 
-bool track_latency(api_key);
-
 } // namespace kafka

@@ -53,6 +53,16 @@ struct server_context_impl final : streaming_context {
     ss::promise<> pr;
 };
 
+rpc_server::rpc_server(net::server_configuration s)
+  : net::server(std::move(s), rpclog) {
+    net::make_latency_metric(cfg.name, _metrics, [this] {
+        return _hist.internal_histogram_logform();
+    });
+    net::make_latency_metric(cfg.name, _public_metrics, [this] {
+        return _hist.public_histogram_logform();
+    });
+}
+
 ss::future<> rpc_server::apply(ss::lw_shared_ptr<net::connection> conn) {
     return ss::do_until(
       [this, conn] { return conn->input().eof() || abort_requested(); },
@@ -197,7 +207,7 @@ ss::future<> rpc_server::dispatch_method_once(
                                ctx,
                                m,
                                method_id,
-                               l = hist().auto_measure()](
+                               l = _hist.auto_measure()](
                                 ss::future<netbuf> fut) mutable {
                     bool error = true;
                     netbuf reply_buf;

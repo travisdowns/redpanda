@@ -53,7 +53,6 @@ void server::start() {
     }
 
     if (!cfg.disable_public_metrics) {
-        setup_public_metrics();
         _probe->setup_public_metrics(_public_metrics, cfg.name.c_str());
     }
 
@@ -339,32 +338,7 @@ void server::setup_metrics() {
          "consumed_mem_bytes",
          [this] { return cfg.max_service_memory_per_core - _memory.current(); },
          sm::description(ssx::sformat(
-           "{}: Memory consumed by request processing", cfg.name))),
-       sm::make_histogram(
-         "dispatch_handler_latency",
-         [this] { return _hist.internal_histogram_logform(); },
-         sm::description(ssx::sformat("{}: Latency ", cfg.name)))});
-}
-
-void server::setup_public_metrics() {
-    namespace sm = ss::metrics;
-
-    std::string_view server_name(cfg.name);
-
-    if (server_name.ends_with("_rpc")) {
-        server_name.remove_suffix(4);
-    }
-
-    auto server_label = metrics::make_namespaced_label("server");
-
-    _public_metrics.add_group(
-      prometheus_sanitize::metrics_name("rpc:request"),
-      {sm::make_histogram(
-         "latency_seconds",
-         sm::description("RPC latency"),
-         {server_label(server_name)},
-         [this] { return _hist.public_histogram_logform(); })
-         .aggregate({sm::shard_label})});
+           "{}: Memory consumed by request processing", cfg.name)))});
 }
 
 std::ostream& operator<<(std::ostream& o, const server_configuration& c) {

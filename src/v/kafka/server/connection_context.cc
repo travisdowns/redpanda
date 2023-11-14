@@ -302,7 +302,6 @@ ss::future<session_resources> connection_context::throttle_request(
     if (delay.enforce > delay_t::clock::duration::zero()) {
         fut = ss::sleep_abortable(delay.enforce, abort_source().local());
     }
-    auto track = track_latency(hdr.key);
     return fut
       .then([this, key = hdr.key, request_size] {
           return reserve_request_units(key, request_size);
@@ -310,15 +309,12 @@ ss::future<session_resources> connection_context::throttle_request(
       .then([this,
              r_data = std::move(r_data),
              delay = delay.request,
-             track,
              tracker = std::move(tracker),
              &h_probe](ssx::semaphore_units units) mutable {
           return server().get_request_unit().then(
-            [this,
-             r_data = std::move(r_data),
+            [r_data = std::move(r_data),
              delay,
              mem_units = std::move(units),
-             track,
              tracker = std::move(tracker),
              &h_probe](ssx::semaphore_units qd_units) mutable {
                 session_resources r{
@@ -327,9 +323,6 @@ ss::future<session_resources> connection_context::throttle_request(
                   .queue_units = std::move(qd_units),
                   .tracker = std::move(tracker),
                   .request_data = std::move(r_data)};
-                if (track) {
-                    r.method_latency = _server.hist().auto_measure();
-                }
                 r.handler_latency = h_probe.auto_latency_measurement();
                 return r;
             });

@@ -9,8 +9,10 @@
 #pragma once
 
 #include "config/configuration.h"
+#include "metrics/metrics.h"
 #include "net/server.h"
 #include "rpc/service.h"
+#include "utils/log_hist.h"
 #include "vassert.h"
 
 namespace rpc {
@@ -22,11 +24,10 @@ struct server_context_impl;
 // new services to be registered while the server is running.
 class rpc_server : public net::server {
 public:
-    explicit rpc_server(net::server_configuration s)
-      : net::server(std::move(s), rpclog) {}
+    explicit rpc_server(net::server_configuration s);
 
     explicit rpc_server(ss::sharded<net::server_configuration>* s)
-      : net::server(s, rpclog) {}
+      : rpc_server(s->local()) {}
 
     ~rpc_server() override = default;
 
@@ -75,6 +76,9 @@ private:
     bool _all_services_added{false};
     bool _service_unavailable_allowed{false};
     std::vector<std::unique_ptr<service>> _services;
+    log_hist_internal _hist;
+    metrics::internal_metric_groups _metrics;
+    metrics::public_metric_groups _public_metrics;
 };
 
 } // namespace rpc

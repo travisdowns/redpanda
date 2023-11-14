@@ -141,7 +141,6 @@ public:
     server_probe& probe() { return *_probe; }
     ssx::semaphore& memory() { return _memory; }
     ss::gate& conn_gate() { return _conn_gate; }
-    hist_t& hist() { return _hist; }
     ss::abort_source& abort_source() { return _as; }
     bool abort_requested() const { return _as.abort_requested(); }
 
@@ -164,8 +163,9 @@ private:
     print_exceptional_future(ss::future<>, const char*, ss::socket_address);
     ss::future<>
       apply_proto(ss::lw_shared_ptr<net::connection>, conn_quota::units);
+
+    // set up the metrics associated with the base net::server instance
     void setup_metrics();
-    void setup_public_metrics();
 
     ss::logger& _log;
     ssx::semaphore _memory;
@@ -174,7 +174,6 @@ private:
     ss::abort_source _as;
     ss::gate _accept_gate;
     ss::gate _conn_gate;
-    hist_t _hist;
     std::unique_ptr<server_probe> _probe;
     metrics::internal_metric_groups _metrics;
     metrics::public_metric_groups _public_metrics;
@@ -182,5 +181,75 @@ private:
     std::optional<config_connection_rate_bindings> connection_rate_bindings;
     std::optional<connection_rate<>> _connection_rates;
 };
+
+/**
+ * @brief Make a latency metric in the "standard style".
+ *
+ * net::server used to containa a histogram that subclasses would update
+ * with metrics as they saw fit, which resulted in a specific set of
+ * metrics being exposed. This histogram was removed but subclasses may
+ * still want to expose metrics with the same names, labels etc as the
+ * existing metrics, though their method of calculating the histogram
+ * to use may vary.
+ *
+ * These methods enable subclasses (specifically, the kafka server and
+ * internal rpc server) to share the code to set up the metrics.
+ *
+ * This exists primarily because the kafka server calculates its histogram
+ * as a combination of two histograms (for produce & consume latency).
+ *
+ * @param server_name the name of the server type
+ * @param metrics the metrics object to add the metric to
+ * @param metricsFunc the metrics function (should return a seastar histogram)
+ */
+void make_latency_metric(
+  const std::string& server_name,
+  metrics::internal_metric_groups& metrics,
+  auto&& metricsFunc) {
+    if (config::shard_local_cfg().disable_metrics()) {
+        return;
+    }
+
+    namespace sm = ss::metrics;
+
+    metrics.add_group(
+      server_name,
+      {sm::make_histogram(
+        "dispatch_handler_latency",
+        metricsFunc,
+        sm::description(ssx::sformat("{}: Latency ", server_name)))});
+}
+
+/**
+ * This exists for the same purpose as the other overload of
+ * make_latency_metric, but for public metrics.
+ */
+void make_latency_metric(
+  const std::string& server_name,
+  metrics::public_metric_groups& public_metrics,
+  auto&& metricsFunc) {
+    if (config::shard_local_cfg().disable_public_metrics()) {
+        return;
+    }
+
+    namespace sm = ss::metrics;
+
+    std::string_view name_view(server_name);
+
+    if (name_view.ends_with("_rpc")) {
+        name_view.remove_suffix(4);
+    }
+
+    auto server_label = metrics::make_namespaced_label("server");
+
+    public_metrics.add_group(
+      "rpc_request",
+      {sm::make_histogram(
+         "latency_seconds",
+         sm::description("RPC latency"),
+         {server_label(name_view)},
+         metricsFunc)
+         .aggregate({sm::shard_label})});
+}
 
 } // namespace net

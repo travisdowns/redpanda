@@ -76,6 +76,8 @@ private:
     uint64_t _bytes_sent{0};
 
     hist_t _latency{};
+
+    friend class handler_probe_manager;
 };
 
 /**
