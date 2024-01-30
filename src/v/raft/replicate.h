@@ -14,6 +14,7 @@
 #include "base/outcome.h"
 #include "model/fundamental.h"
 #include "raft/errc.h"
+#include "utils/oc_latency_fwd.h"
 
 #include <chrono>
 #include <optional>
@@ -23,15 +24,14 @@ namespace raft {
 enum class consistency_level { quorum_ack, leader_ack, no_ack };
 
 struct replicate_options {
-    explicit replicate_options(consistency_level l)
+    explicit replicate_options(consistency_level l, shared_tracker tracker = {})
       : consistency(l)
       , timeout(std::nullopt)
-      , _force_flush(false) {}
+      , tracker{std::move(tracker)} {}
 
     replicate_options(consistency_level l, std::chrono::milliseconds timeout)
       : consistency(l)
-      , timeout(timeout)
-      , _force_flush(false) {}
+      , timeout(timeout) {}
 
     // Callers may choose to force flush on an individual replicate request
     // basis. This is useful if certain callers intend to override any
@@ -44,7 +44,8 @@ struct replicate_options {
 
     consistency_level consistency;
     std::optional<std::chrono::milliseconds> timeout;
-    bool _force_flush;
+    shared_tracker tracker;
+    bool _force_flush = false;
 };
 
 struct replicate_result {

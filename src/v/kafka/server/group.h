@@ -28,6 +28,7 @@
 #include "model/timestamp.h"
 #include "raft/replicate.h"
 #include "utils/mutex.h"
+#include "utils/oc_latency.h"
 #include "utils/rwlock.h"
 
 #include <seastar/core/future.hh>
@@ -545,7 +546,8 @@ public:
     ss::future<txn_offset_commit_response>
     store_txn_offsets(txn_offset_commit_request r);
 
-    offset_commit_stages store_offsets(offset_commit_request&& r);
+    offset_commit_stages
+    store_offsets(offset_commit_request&& r, shared_tracker tracker);
 
     ss::future<txn_offset_commit_response>
     handle_txn_offset_commit(txn_offset_commit_request r);
@@ -556,7 +558,8 @@ public:
     ss::future<cluster::abort_group_tx_reply>
     handle_abort_tx(cluster::abort_group_tx_request r);
 
-    offset_commit_stages handle_offset_commit(offset_commit_request&& r);
+    offset_commit_stages
+    handle_offset_commit(offset_commit_request&& r, shared_tracker tracker);
 
     ss::future<cluster::commit_group_tx_reply>
     handle_commit_tx(cluster::commit_group_tx_request r);

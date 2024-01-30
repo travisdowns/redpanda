@@ -40,6 +40,7 @@
 #include "storage/log.h"
 #include "storage/snapshot.h"
 #include "utils/mutex.h"
+#include "utils/oc_latency_fwd.h"
 
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/sharded.hh>
@@ -53,6 +54,7 @@ class replicate_entries_stm;
 class vote_stm;
 class recovery_stm;
 class heartbeat_manager;
+class probe;
 
 std::vector<model::record_batch_type>
 offset_translator_batch_types(const model::ntp& ntp);
@@ -107,6 +109,8 @@ public:
       features::feature_table&,
       std::optional<voter_priority> = std::nullopt,
       keep_snapshotted_log = keep_snapshotted_log::no);
+
+    ~consensus();
 
     /// Initial call. Allow for internal state recovery
     ss::future<>
@@ -615,7 +619,7 @@ private:
 
     /// \brief _does not_ hold the lock.
     using flushed = ss::bool_class<struct flushed_executed_tag>;
-    ss::future<flushed> flush_log();
+    ss::future<flushed> flush_log(tracker_vector tv = {});
 
     void maybe_step_down();
 

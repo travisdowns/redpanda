@@ -20,9 +20,16 @@
 #include <seastar/core/gate.hh>
 
 #include <absl/container/flat_hash_map.h>
+
+struct oc_tracker;
+
 namespace raft {
 class consensus;
+class probe;
 
+/**
+ * @brief Oppurtunisically batches up replication requests.
+ */
 class replicate_batcher {
 public:
     class item {
@@ -112,6 +119,9 @@ public:
         bool _ready{false};
         ss::timer<> _timeout_timer;
         ss::promise<result<replicate_result>> _promise;
+
+    public:
+        shared_tracker _tracker;
     };
     using item_ptr = ss::lw_shared_ptr<item>;
     explicit replicate_batcher(consensus* ptr, size_t cache_size);
@@ -127,7 +137,10 @@ public:
       model::record_batch_reader,
       replicate_options);
 
-    ss::future<> flush(ssx::semaphore_units u, bool const transfer_flush);
+    ss::future<> flush(
+      ssx::semaphore_units u,
+      bool const transfer_flush,
+      shared_tracker tracker = nullptr);
 
     ss::future<> stop();
 
@@ -154,6 +167,8 @@ private:
       std::optional<model::term_id> expected_term,
       model::record_batch_reader r,
       replicate_options);
+
+    probe& probe();
 
     consensus* _ptr;
     ssx::semaphore _max_batch_size_sem;

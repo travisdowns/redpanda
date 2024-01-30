@@ -23,6 +23,7 @@
 #include "reflection/adl.h"
 #include "serde/envelope.h"
 #include "utils/named_type.h"
+#include "utils/oc_latency.h"
 
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/io_priority_class.hh>
@@ -34,6 +35,8 @@
 #include <boost/range/join.hpp>
 
 #include <cstdint>
+
+struct oc_tracker;
 
 namespace raft {
 

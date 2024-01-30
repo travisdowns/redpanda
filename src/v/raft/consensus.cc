@@ -27,6 +27,7 @@
 #include "raft/errc.h"
 #include "raft/group_configuration.h"
 #include "raft/logger.h"
+#include "raft/probe.h"
 #include "raft/recovery_stm.h"
 #include "raft/replicate_entries_stm.h"
 #include "raft/rpc_client_protocol.h"
@@ -160,6 +161,8 @@ consensus::consensus(
     });
     ssx::spawn_with_gate(_bg, [this] { return background_flusher(); });
 }
+
+consensus::~consensus() = default;
 
 void consensus::setup_metrics() {
     namespace sm = ss::metrics;
@@ -2572,7 +2575,7 @@ ss::future<result<replicate_result>> consensus::dispatch_replicate(
   std::vector<ssx::semaphore_units> u,
   absl::flat_hash_map<vnode, follower_req_seq> seqs) {
     auto stm = ss::make_lw_shared<replicate_entries_stm>(
-      this, std::move(req), std::move(seqs));
+      this, std::move(req), std::move(seqs), tracker_vector{});
 
     return stm->apply(std::move(u))
       .then([stm](result<replicate_result> res) {
@@ -2616,7 +2619,7 @@ append_entries_reply consensus::make_append_entries_reply(
     return reply;
 }
 
-ss::future<consensus::flushed> consensus::flush_log() {
+ss::future<consensus::flushed> consensus::flush_log(tracker_vector tv) {
     if (!has_pending_flushes()) {
         _last_flush_time = clock_type::now();
         co_return flushed::no;
@@ -2627,6 +2630,11 @@ ss::future<consensus::flushed> consensus::flush_log() {
     _pending_flush_bytes = 0;
     co_await _log->flush();
     _last_flush_time = clock_type::now();
+
+    for (auto& t : tv) {
+        t->record("a_cflush_log");
+    }
+
     const auto lstats = _log->offsets();
     /**
      * log flush may be interleaved with trucation, hence we need to check

@@ -10,12 +10,13 @@
 #include "raft/replicate_batcher.h"
 
 #include "raft/consensus.h"
+#include "raft/probe.h"
 #include "raft/replicate_entries_stm.h"
 #include "raft/types.h"
 #include "ssx/future-util.h"
+#include "utils/oc_latency.h"
 
 #include <seastar/core/coroutine.hh>
-#include <seastar/core/future.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/shared_ptr.hh>
 
@@ -46,10 +47,15 @@ replicate_batcher::cache_and_wait_for_result(
   std::optional<model::term_id> expected_term,
   model::record_batch_reader r,
   replicate_options opts) {
+    auto tracker = opts.tracker;
     item_ptr item;
     try {
         auto holder = _bg.hold();
         item = co_await do_cache(expected_term, std::move(r), opts);
+
+        if (opts.tracker) {
+            opts.tracker->record("a_do_cache");
+        }
 
         // now request is already enqueued, we can release first
         // stage future
@@ -66,10 +72,16 @@ replicate_batcher::cache_and_wait_for_result(
          */
         if (!_flush_pending) {
             _flush_pending = true;
-            ssx::background = ssx::spawn_with_gate_then(_bg, [this]() {
+            ssx::background = ssx::spawn_with_gate_then(_bg, [this, tracker]() {
+                if (tracker) {
+                    tracker->record("b_lock");
+                }
                 return _lock.get_units()
-                  .then([this](auto units) {
-                      return flush(std::move(units), false);
+                  .then([this, tracker](auto units) {
+                      if (tracker) {
+                          tracker->record("a_lock");
+                      }
+                      return flush(std::move(units), false, tracker);
                   })
                   .handle_exception([this](const std::exception_ptr& e) {
                       // an exception here is quite unlikely, since the flush()
@@ -89,7 +101,15 @@ replicate_batcher::cache_and_wait_for_result(
         co_return errc::replicate_batcher_cache_error;
     }
 
-    co_return co_await item->get_future();
+    if (tracker) {
+        tracker->record("b_item_future");
+    }
+    auto lastf = co_await item->get_future();
+    if (tracker) {
+        tracker->record("a_item_future");
+    }
+
+    co_return lastf;
 }
 
 ss::future<> replicate_batcher::stop() {
@@ -169,12 +189,18 @@ replicate_batcher::do_cache_with_backpressure(
     auto i = ss::make_lw_shared<item>(
       record_count, std::move(data), std::move(u), expected_term, opts);
 
+    if (opts.tracker) {
+        opts.tracker->record("raft_eb");
+    }
+
     _item_cache.emplace_back(i);
     co_return i;
 }
 
 ss::future<> replicate_batcher::flush(
-  ssx::semaphore_units batcher_units, bool const transfer_flush) {
+  ssx::semaphore_units batcher_units,
+  bool const transfer_flush,
+  shared_tracker) {
     auto item_cache = std::exchange(_item_cache, {});
     // this function should not throw, nor return exceptional futures,
     // since it is usually invoked in the background and there is
@@ -185,6 +211,11 @@ ss::future<> replicate_batcher::flush(
             co_return;
         }
         auto u = co_await _ptr->_op_lock.get_units();
+        for (auto& i : item_cache) {
+            if (i->_tracker) {
+                i->_tracker->record("a_op_lock");
+            }
+        }
 
         if (!transfer_flush && _ptr->_transferring_leadership) {
             vlog(_ptr->_ctxlog.warn, "Dropping flush, leadership transferring");
@@ -271,11 +302,24 @@ ss::future<> replicate_batcher::flush(
         // we will release memory semaphore as soon as append entry
         // requests will be dispatched
         units.push_back(std::move(item_memory_units));
+
+        for (auto& n : notifications) {
+            if (n->_tracker) {
+                n->_tracker->record("b_do_flush");
+            }
+        }
+
         co_await do_flush(
           std::move(notifications),
           std::move(req),
           std::move(units),
           std::move(seqs));
+
+        for (auto& n : notifications) {
+            if (n->_tracker) {
+                n->_tracker->record("a_do_flush");
+            }
+        }
     } catch (...) {
         for (auto& i : item_cache) {
             i->set_exception(std::current_exception());
@@ -321,9 +365,18 @@ ss::future<> replicate_batcher::do_flush(
   append_entries_request req,
   std::vector<ssx::semaphore_units> u,
   absl::flat_hash_map<vnode, follower_req_seq> seqs) {
-    _ptr->_probe->replicate_batch_flushed();
+    probe().replicate_batch_flushed_items(notifications.size());
+    probe().replicate_batch_flushed();
+
+    tracker_vector trackers;
+    for (auto& n : notifications) {
+        if (n->_tracker) {
+            trackers.emplace_back(n->_tracker);
+        }
+    }
+
     auto stm = ss::make_lw_shared<replicate_entries_stm>(
-      _ptr, std::move(req), std::move(seqs));
+      _ptr, std::move(req), std::move(seqs), std::move(trackers));
     try {
         auto holder = _bg.hold();
         auto leader_result = co_await stm->apply(std::move(u));
@@ -378,5 +431,7 @@ ss::future<> replicate_batcher::do_flush(
           });
     });
 }
+
+probe& replicate_batcher::probe() { return _ptr->get_probe(); }
 
 } // namespace raft
