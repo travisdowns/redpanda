@@ -29,6 +29,7 @@
 #include "raft/errc.h"
 #include "raft/types.h"
 #include "ssx/future-util.h"
+#include "utils/oc_latency_fwd.h"
 #include "utils/remote.h"
 #include "utils/to_string.h"
 
@@ -77,6 +78,31 @@ produce_response produce_request::make_full_disk_response() const {
     return resp;
 }
 
+struct produce_ctx {
+    request_context rctx;
+    produce_request request;
+    produce_response response;
+    ss::smp_service_group ssg;
+    shared_tracker tracker;
+
+    produce_ctx(
+      request_context&& rctx,
+      produce_request&& request,
+      produce_response&& response,
+      ss::smp_service_group ssg,
+      oc_tracker&& tracker)
+      : rctx(std::move(rctx))
+      , request(std::move(request))
+      , response(std::move(response))
+      , ssg(ssg)
+      , tracker(make_shared_tracker(std::move(tracker))) {}
+};
+
+struct partition_produce_stages {
+    ss::future<> dispatched;
+    ss::future<produce_response::partition> produced;
+};
+
 struct topic_produce_stages {
     ss::future<> dispatched;
     ss::future<produce_response::topic> produced;
@@ -90,15 +116,17 @@ partition_produce_stages make_ready_stage(produce_response::partition p) {
     };
 }
 
-static raft::replicate_options
-acks_to_replicate_options(int16_t acks, std::chrono::milliseconds timeout) {
+static raft::replicate_options acks_to_replicate_options(
+  int16_t acks, std::chrono::milliseconds timeout, shared_tracker tracker) {
     switch (acks) {
     case -1:
-        return {raft::consistency_level::quorum_ack, timeout};
+        return {
+          raft::consistency_level::quorum_ack, timeout, std::move(tracker)};
     case 0:
-        return {raft::consistency_level::no_ack, timeout};
+        return {raft::consistency_level::no_ack, timeout, std::move(tracker)};
     case 1:
-        return {raft::consistency_level::leader_ack, timeout};
+        return {
+          raft::consistency_level::leader_ack, timeout, std::move(tracker)};
     default:
         throw std::invalid_argument("Not supported ack level");
     };
@@ -170,9 +198,12 @@ static partition_produce_stages partition_append(
   int16_t acks,
   int32_t num_records,
   int64_t num_bytes,
-  std::chrono::milliseconds timeout_ms) {
+  std::chrono::milliseconds timeout_ms,
+  shared_tracker tracker) {
     auto stages = partition->replicate(
-      bid, std::move(reader), acks_to_replicate_options(acks, timeout_ms));
+      bid,
+      std::move(reader),
+      acks_to_replicate_options(acks, timeout_ms, std::move(tracker)));
     return partition_produce_stages{
       .dispatched = std::move(stages.request_enqueued),
       .produced = stages.replicate_finished.then_wrapped(
@@ -361,6 +392,7 @@ static partition_produce_stages produce_topic_partition(
         // negative timeout translates to no timeout
         timeout = max_timeout;
     }
+    octx.tracker->record("prod_pre_part_manager_invoke");
     auto f
       = octx.rctx.partition_manager()
           .invoke_on(
@@ -376,8 +408,8 @@ static partition_produce_stages produce_topic_partition(
              acks = octx.request.data.acks,
              batch_max_bytes,
              timeout,
-             source_shard = ss::this_shard_id()](
-              cluster::partition_manager& mgr) mutable {
+             source_shard = ss::this_shard_id(),
+             tracker = octx.tracker](cluster::partition_manager& mgr) mutable {
                 auto partition = mgr.get(ntp);
                 if (!partition) {
                     return finalize_request_with_error_code(
@@ -413,7 +445,8 @@ static partition_produce_stages produce_topic_partition(
                          source_shard,
                          num_records,
                          batch_size,
-                         timeout](auto reader) mutable {
+                         timeout,
+                         tracker = std::move(tracker)](auto reader) mutable {
                       if (reader.has_error()) {
                           return finalize_request_with_error_code(
                             reader.assume_error(),
@@ -421,6 +454,7 @@ static partition_produce_stages produce_topic_partition(
                             ntp,
                             source_shard);
                       }
+                      tracker->record("prod_pre_partition_append");
                       auto stages = partition_append(
                         ntp.tp.partition,
                         ss::make_lw_shared<replicated_partition>(
@@ -430,7 +464,8 @@ static partition_produce_stages produce_topic_partition(
                         acks,
                         num_records,
                         batch_size,
-                        timeout);
+                        timeout,
+                        tracker);
                       return stages.dispatched
                         .then_wrapped(
                           [source_shard, dispatch = std::move(dispatch)](
@@ -459,6 +494,7 @@ static partition_produce_stages produce_topic_partition(
             })
           .then([&octx, start, m = std::move(m)](
                   produce_response::partition p) {
+              octx.tracker->record("prod_partition_produced");
               if (p.error_code == error_code::none) {
                   auto dur = std::chrono::steady_clock::now() - start;
                   octx.rctx.connection()->server().update_produce_latency(dur);
@@ -619,6 +655,7 @@ static std::vector<topic_produce_stages> produce_topics(produce_ctx& octx) {
 template<>
 process_result_stages
 produce_handler::handle(request_context ctx, ss::smp_service_group ssg) {
+    oc_tracker tracker;
     produce_request request;
     request.decode(ctx.reader(), ctx.header().version);
     log_request(ctx.header(), request);
@@ -759,10 +796,17 @@ produce_handler::handle(request_context ctx, ss::smp_service_group ssg) {
 
     request.data.topics.erase(unauthorized_it, request.data.topics.end());
 
+    tracker.record("prod_setup_done");
+
     ss::promise<> dispatched_promise;
     auto dispatched_f = dispatched_promise.get_future();
     auto produced_f = ss::do_with(
-      produce_ctx(std::move(ctx), std::move(request), std::move(resp), ssg),
+      produce_ctx(
+        std::move(ctx),
+        std::move(request),
+        std::move(resp),
+        ssg,
+        std::move(tracker)),
       [dispatched_promise = std::move(dispatched_promise)](
         produce_ctx& octx) mutable {
           // dispatch produce requests for each topic
@@ -781,6 +825,7 @@ produce_handler::handle(request_context ctx, ss::smp_service_group ssg) {
                            dispatched_promise = std::move(dispatched_promise),
                            produced = std::move(produced)](
                             ss::future<> f) mutable {
+                octx.tracker->record("prod_all_dispatched");
                 try {
                     f.get();
                     dispatched_promise.set_value();
@@ -794,6 +839,7 @@ produce_handler::handle(request_context ctx, ss::smp_service_group ssg) {
                               std::back_inserter(octx.response.data.responses));
                         })
                       .then([&octx] {
+                          octx.tracker->record("prod_all_produced");
                           // send response immediately
                           if (octx.request.data.acks != 0) {
                               return octx.rctx.respond(
