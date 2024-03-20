@@ -29,9 +29,13 @@ struct replicate_options {
       , timeout(std::nullopt)
       , tracker{std::move(tracker)} {}
 
-    replicate_options(consistency_level l, std::chrono::milliseconds timeout)
+    replicate_options(
+      consistency_level l,
+      std::chrono::milliseconds timeout,
+      shared_tracker tracker = {})
       : consistency(l)
-      , timeout(timeout) {}
+      , timeout(timeout)
+      , tracker{std::move(tracker)} {}
 
     // Callers may choose to force flush on an individual replicate request
     // basis. This is useful if certain callers intend to override any

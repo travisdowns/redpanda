@@ -845,16 +845,20 @@ ss::future<result<kafka_result>> rm_stm::do_replicate(
   raft::replicate_options opts,
   ss::lw_shared_ptr<available_promise<>> enqueued) {
     auto holder = _gate.hold();
+    opts.tracker->record("b_XXX__state_lock_read");
     auto unit = co_await _state_lock.hold_read_lock();
+    opts.tracker->record("b_YYY__state_lock_read");
     if (bid.is_transactional) {
         auto pid = bid.pid.get_id();
         auto tx_units = co_await get_tx_lock(pid)->get_units();
         co_return co_await transactional_replicate(bid, std::move(b));
     } else if (bid.is_idempotent()) {
+        opts.tracker->record("b_XXX_replicate_msg_idem");
         co_return co_await idempotent_replicate(
           bid, std::move(b), opts, enqueued);
     }
 
+    opts.tracker->record("b_XXX_replicate_msg_not_idem");
     co_return co_await replicate_msg(std::move(b), opts, enqueued);
 }
 
@@ -1217,9 +1221,13 @@ ss::future<result<kafka_result>> rm_stm::replicate_msg(
     }
 
     auto ss = _raft->replicate_in_stages(_insync_term, std::move(br), opts);
+
+    opts.tracker->record("XXX_ris_request_enqueued");
     co_await std::move(ss.request_enqueued);
+    opts.tracker->record("YYY_ris_request_enqueued");
     enqueued->set_value();
     auto r = co_await std::move(ss.replicate_finished);
+    opts.tracker->record("YYY_ris_replicate_finished");
 
     if (!r) {
         co_return ret_t(r.error());

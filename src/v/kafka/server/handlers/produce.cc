@@ -78,31 +78,6 @@ produce_response produce_request::make_full_disk_response() const {
     return resp;
 }
 
-struct produce_ctx {
-    request_context rctx;
-    produce_request request;
-    produce_response response;
-    ss::smp_service_group ssg;
-    shared_tracker tracker;
-
-    produce_ctx(
-      request_context&& rctx,
-      produce_request&& request,
-      produce_response&& response,
-      ss::smp_service_group ssg,
-      oc_tracker&& tracker)
-      : rctx(std::move(rctx))
-      , request(std::move(request))
-      , response(std::move(response))
-      , ssg(ssg)
-      , tracker(make_shared_tracker(std::move(tracker))) {}
-};
-
-struct partition_produce_stages {
-    ss::future<> dispatched;
-    ss::future<produce_response::partition> produced;
-};
-
 struct topic_produce_stages {
     ss::future<> dispatched;
     ss::future<produce_response::topic> produced;

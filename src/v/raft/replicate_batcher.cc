@@ -14,6 +14,7 @@
 #include "raft/replicate_entries_stm.h"
 #include "raft/types.h"
 #include "ssx/future-util.h"
+#include "utils/interval.h"
 #include "utils/oc_latency.h"
 
 #include <seastar/core/coroutine.hh>
@@ -215,7 +216,7 @@ ss::future<> replicate_batcher::flush(
                 i->_tracker->record("rp_b_op_lock");
             }
         }
-        auto u = co_await _ptr->_op_lock.get_units();
+        auto op_lock_units = co_await _ptr->_op_lock.get_units();
         for (auto& i : item_cache) {
             if (i->_tracker) {
                 i->_tracker->record("a_op_lock");
@@ -303,7 +304,7 @@ ss::future<> replicate_batcher::flush(
 
         std::vector<ssx::semaphore_units> units;
         units.reserve(2);
-        units.push_back(std::move(u));
+        units.push_back(std::move(op_lock_units));
         // we will release memory semaphore as soon as append entry
         // requests will be dispatched
         units.push_back(std::move(item_memory_units));
@@ -368,7 +369,7 @@ static void propagate_current_exception(
 ss::future<> replicate_batcher::do_flush(
   std::vector<replicate_batcher::item_ptr> notifications,
   append_entries_request req,
-  std::vector<ssx::semaphore_units> u,
+  std::vector<ssx::semaphore_units> flush_units,
   absl::flat_hash_map<vnode, follower_req_seq> seqs) {
     probe().replicate_batch_flushed_items(notifications.size());
     probe().replicate_batch_flushed();
@@ -384,7 +385,9 @@ ss::future<> replicate_batcher::do_flush(
       _ptr, std::move(req), std::move(seqs), std::move(trackers));
     try {
         auto holder = _bg.hold();
-        auto leader_result = co_await stm->apply(std::move(u));
+        auto stm_apply_interval = interval::start_interval("stm_apply");
+        auto leader_result = co_await stm->apply(std::move(flush_units));
+        stm_apply_interval.stop();
 
         /**
          * First phase, if leader result has error just propagate error

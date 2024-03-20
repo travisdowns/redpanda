@@ -26,6 +26,7 @@
 #include "raft/raftgen_service.h"
 #include "raft/types.h"
 #include "rpc/types.h"
+#include "utils/interval.h"
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/semaphore.hh>
@@ -297,6 +298,15 @@ inline bool replicate_entries_stm::should_skip_follower_request(vnode id) {
     return false;
 }
 
+ss::future<> tracked_wait(
+  replicate_entries_stm* this_,
+  ss::future<>&& f,
+  const char* before,
+  const char* after) {
+    this_->record(before);
+    return std::move(f).finally([=] { this_->record(after); });
+}
+
 ss::future<result<replicate_result>> replicate_entries_stm::apply(units_t u) {
     // first append lo leader log, no flushing
     auto cfg = _ptr->config();
@@ -308,7 +318,10 @@ ss::future<result<replicate_result>> replicate_entries_stm::apply(units_t u) {
     });
     _units = ss::make_lw_shared<units_t>(std::move(u));
     record("b_append_to_self");
-    _append_result = co_await append_to_self();
+    {
+        auto ats = interval::start_interval("append_to_self");
+        _append_result = co_await append_to_self();
+    }
     record("a_append_to_self");
 
     if (!_append_result) {
@@ -340,12 +353,17 @@ ss::future<result<replicate_result>> replicate_entries_stm::apply(units_t u) {
     // units
     ssx::spawn_with_gate(_req_bg, [this]() {
         // Wait until all RPCs will be dispatched
-        return _dispatch_sem.wait(_requests_count).then([this] {
-            // release memory reservations, and destroy data
-            _batches.reset();
-            _units.release();
-            record("a_release_units");
-        });
+        return tracked_wait(
+                 this,
+                 _dispatch_sem.wait(_requests_count),
+                 "b_dispatch_sem",
+                 "a_dispatch_sem")
+          .then([this] {
+              // release memory reservations, and destroy data
+              _batches.reset();
+              _units.release();
+              record("a_release_units");
+          });
     });
 
     co_return build_replicate_result();

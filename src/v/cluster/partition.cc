@@ -363,9 +363,11 @@ kafka_stages partition::replicate_in_stages(
     }
 
     if (_rm_stm) {
+        opts.tracker->record("b_XXX_replicate_in_stages_stm");
         return _rm_stm->replicate_in_stages(bid, std::move(r), opts);
     }
 
+    opts.tracker->record("b_XXX_replicate_in_stages_nostm");
     auto res = _raft->replicate_in_stages(std::move(r), opts);
     auto replicate_finished = res.replicate_finished.then(
       [this](result<raft::replicate_result> r) {

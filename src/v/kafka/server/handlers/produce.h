@@ -11,6 +11,7 @@
 #pragma once
 #include "kafka/protocol/produce.h"
 #include "kafka/server/handlers/handler.h"
+#include "utils/oc_latency.h"
 
 namespace kafka {
 
@@ -26,16 +27,19 @@ struct produce_ctx {
     produce_request request;
     produce_response response;
     ss::smp_service_group ssg;
+    shared_tracker tracker;
 
     produce_ctx(
       request_context&& rctx,
       produce_request&& request,
       produce_response&& response,
-      ss::smp_service_group ssg)
+      ss::smp_service_group ssg,
+      oc_tracker&& tracker)
       : rctx(std::move(rctx))
       , request(std::move(request))
       , response(std::move(response))
-      , ssg(ssg) {}
+      , ssg(ssg)
+      , tracker(make_shared_tracker(std::move(tracker))) {}
 };
 
 /*

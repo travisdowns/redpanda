@@ -56,7 +56,14 @@ public:
           });
     }
 
-    ss::future<units> get_units() noexcept { return ss::get_units(_sem, 1); }
+    ss::future<units> get_units() noexcept {
+        auto units = ss::get_units(_sem, 1);
+        if (units.available()) {
+            return units;
+        } else {
+            return get_units_slow(std::move(units));
+        }
+    }
 
     ss::future<units> get_units(ss::abort_source& as) noexcept {
         return ss::get_units(_sem, 1, as);
@@ -75,5 +82,7 @@ public:
     size_t waiters() const noexcept { return _sem.waiters(); }
 
 private:
+    ss::future<units> get_units_slow(ss::future<units>);
+
     ssx::semaphore _sem;
 };

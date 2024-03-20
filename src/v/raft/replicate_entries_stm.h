@@ -115,6 +115,8 @@ public:
      */
     ss::future<> wait_for_shutdown();
 
+    void record(const char* what) { record_vector(_trackers, what); }
+
 private:
     ss::future<model::record_batch_reader> share_batches();
 
@@ -136,8 +138,6 @@ private:
     ss::future<result<replicate_result>> wait_for_majority_flush();
 
     ss::future<result<replicate_result>> wait_for_majority_no_flush();
-
-    void record(const char* what) { record_vector(_trackers, what); }
 
     consensus* _ptr;
     /// we keep a copy around until we finish the retries

@@ -30,7 +30,13 @@ public:
     named_semaphore(size_t count, seastar::sstring name)
       : seastar::
         basic_semaphore<seastar::named_semaphore_exception_factory, Clock>(
-          count, seastar::named_semaphore_exception_factory{std::move(name)}) {}
+          count, seastar::named_semaphore_exception_factory{name})
+      , _name{std::move(name)} {}
+
+    seastar::sstring name() const { return _name; }
+
+private:
+    seastar::sstring _name;
 };
 
 using semaphore = named_semaphore<>;

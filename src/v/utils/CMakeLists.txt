@@ -11,7 +11,9 @@ v_cc_library(
     tracking_allocator.cc
     vint.cc
     directory_walker.cc
+    interval.cc
     uuid.cc
+    mutex.cc
     bottomless_token_bucket.cc
     log_hist.cc
     xid.cc
