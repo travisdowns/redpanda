@@ -1,21 +1,11 @@
 #!/usr/bin/env bash
 set -e
 apt update
-apt install -y \
-  build-essential \
+apt-get install -y --no-install-recommends \
   openjdk-17-jdk \
   openjdk-21-jdk \
-  git \
-  maven \
-  cmake \
-  curl \
-  wget
+  maven
 
-SCRIPTPATH="$(
-  cd -- "$(dirname "$0")" >/dev/null 2>&1
-  pwd -P
-)"
-$SCRIPTPATH/protobuf
 ARCH=$(dpkg-architecture -q DEB_BUILD_ARCH)
 
 architecture=""

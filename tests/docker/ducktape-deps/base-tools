@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+########################################################
+#                                                      #
+# ONLY ADD NEEDED TOOLS HERE:                          #
+# "Base" tools are those needed by multiple subsequent #
+# sibling stages.                                      #
+# Tools which are just needed by ducktape at runtime   #
+# should be added to runtime-tools, while tools needed #
+# by a single stage should be added to/before that     #
+# stage.                                               #
+#                                                      #
+########################################################
+
+set -e
+apt-get update
+apt-get install -y --no-install-recommends \
+  build-essential \
+  ca-certificates \
+  curl \
+  git \
+  python3 \
+  python3-pip \
+  python3-venv \
+  wget

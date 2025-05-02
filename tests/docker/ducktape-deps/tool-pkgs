@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -e
 apt-get update
-apt-get install -qq \
+apt-get install -y \
+  gnuplot-nox \
   bind9-utils \
   bind9-dnsutils \
   bsdmainutils \
   dmidecode \
-  gnuplot-nox \
   krb5-admin-server \
   krb5-kdc \
   krb5-user \

@@ -25,25 +25,47 @@ RUN /seed-maven-cache && rm -rf /seed-maven-cache /var/lib/apt/lists/*
 
 FROM os_base AS base
 
+RUN rm /etc/apt/apt.conf.d/docker-clean
+
 RUN mkdir -p /opt/redpanda-tests
 COPY --chown=0:0 tests/protobuf /opt/redpanda-tests/protobuf
 
-COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/java-dev-tools /
-COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/protobuf /
-RUN /java-dev-tools && \
-    rm /java-dev-tools && \
-    rm -rf /var/lib/apt/lists/*
-
+ENV x=y
 # - install distro-packaged depedencies
 # - install dependencies of 'rpk debug' system scan
-COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/tool-pkgs /
-RUN /tool-pkgs && \
-    rm /tool-pkgs && \
-    rm -rf /var/lib/apt/lists/*
+COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/tool-pkgs tests/docker/ducktape-deps/base-tools /
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    /base-tools && rm /base-tools
+
+##########################################
+FROM base AS java-base
+COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/java-dev-tools /
+COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/protobuf /
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked --mount=type=cache,target=/var/lib/apt,sharing=locked /java-dev-tools && \
+    rm /java-dev-tools
+
+
+####
+
+FROM public.ecr.aws/docker/library/ubuntu:jammy-20240911.1 AS tools-only
+
+ENV TZ="UTC" \
+    DEBIAN_FRONTEND=noninteractive
+
+ENV E=111
+RUN rm /etc/apt/apt.conf.d/docker-clean
+COPY --chmod=0755  \
+    tests/docker/ducktape-deps/tool-pkgs /
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -y && /tool-pkgs
+
+FROM scratch AS tools2
+
+COPY --from=tools-only / /
 
 #################################
 
-FROM base AS maven_base
+FROM java-base AS maven_base
 # maven_base is used for all maven-using java stages below
 COPY --from=m2_seed /root/.m2 /root/.m2
 
@@ -60,7 +82,7 @@ RUN /kafka-streams-examples && \
 
 #################################
 
-FROM maven_base AS omb
+FROM java-base AS omb
 
 COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/omb /
 RUN /omb && \
@@ -68,7 +90,7 @@ RUN /omb && \
 
 #################################
 
-FROM maven_base AS java-verifiers
+FROM java-base AS java-verifiers
 
 COPY --chown=0:0 tests/java/e2e-verifiers /opt/redpanda-tests/java/e2e-verifiers
 COPY --chown=0:0 tests/java/verifiers /opt/redpanda-tests/java/verifiers
@@ -79,7 +101,7 @@ RUN /java-verifiers && \
 
 #################################
 
-FROM maven_base AS kafka-tools
+FROM java-base AS kafka-tools
 
 ENV KAFKA_MIRROR="https://s3-us-west-2.amazonaws.com/kafka-packages"
 COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/kafka-tools /
@@ -171,7 +193,7 @@ RUN /franz-bench && \
 
 #################################
 
-FROM base AS flink
+FROM java-base AS flink
 
 COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/flink /
 RUN /flink && \
@@ -250,19 +272,19 @@ RUN /ocsf-server && rm /ocsf-server
 
 #################################
 
-FROM base AS polaris
+FROM java-base AS polaris
 COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/polaris /
 RUN /polaris && rm /polaris
 
 #################################
 
-FROM base AS nessie
+FROM java-base AS nessie
 COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/nessie /
 RUN /nessie && rm /nessie
 
 #################################
 
-FROM base AS iceberg-rest
+FROM java-base AS iceberg-rest
 COPY --chown=0:0 tests/java/iceberg-rest-catalog /opt/redpanda-tests/java/iceberg-rest-catalog
 COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/iceberg-rest-catalog /
 RUN /iceberg-rest-catalog && rm /iceberg-rest-catalog
@@ -275,7 +297,7 @@ RUN /trino && rm /trino
 
 #################################
 
-FROM maven_base AS spark
+FROM java-base AS spark
 COPY --chown=0:0 tests/java/spark-iceberg-dependencies /opt/redpanda-tests/java/spark-iceberg-dependencies
 COPY --chown=0:0 --chmod=0755 tests/docker/ducktape-deps/spark /
 RUN /spark && rm /spark
