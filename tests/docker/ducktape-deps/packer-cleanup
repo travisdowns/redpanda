@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+# This script runs only in the packer flavor of the image generation and removes
+# locations that use a lot of space but which are not needed in the final image.
+# In the Docker version of image generation these are generally excluded because
+# they are on a "non mainline" part of the multi-root build (which only have specific
+# outputs copied to the final image, discarding intermediates), or because they are
+# captured by a cache mount which also excludes them from the final image.
+
+# A simple way to observe that this is "safe" is to note which directories do no
+# appear in the Docker image, only in the packer one: those can be removed.
+
+echo "Before packer cleanup"
+df -h
+
+# cached files, not needed at runtime, mostly go build and pip cache
+# about 1.5 GB
+rm -rf /root/.cache
+
+# gradle build artifacts, not needed at runtime
+rm -rf /root/.gradle
+
+# 385 MB of cargo build artifacts, not needed at runtime
+rm -rf /root/.cargo
+
+# 385 MB of rust compilers, not needed at runtime
+rm -rf /root/.rustup
+
+# 1900 MB of go build stuff, not needed at runtime
+rm -rf /root/go
+
+# 345 MB of storage tool build stuff
+rm -rf rp_storage_tool
+
+# ~1GB of downloaded packages
+rm -rf /var/cache/apt
+
+# blow away tmp, as it is a real disk-backed directory, not tmpfs, this also
+# catches /tmp/dl-cache
+rm -rf /tmp/{*,.[!.]*,..?*}
+
+echo "After packer cleanup (before zeros)"
+df -h
+
+# fill the disk with zeros to make the image smaller, since after we deleted
+# the files above the associated blocks are still full of the old file data
+# and EBS snapshots are a block level thing, so will faithfully reproduce them
+dd if=/dev/zero of=/zeros bs=1M
+rm /zeros
+
+echo "After packer cleanup (after zeros)"
+df -h
