@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 Redpanda Data, Inc.
+ * Copyright 2020 Redpanda Data, Inc.
  *
  * Use of this software is governed by the Business Source License
  * included in the file licenses/BSL.md
@@ -8,18 +8,19 @@
  * the Business Source License, use of this software will be governed
  * by the Apache License, Version 2.0
  */
-#include "bytes/random.h"
 
-#include "random/secure_generators.h"
+#pragma once
 
+#include "base/seastarx.h"
+
+#include <seastar/core/sstring.hh>
+
+// Random generators useful for testing.
 namespace random_generators {
 
-bytes get_crypto_bytes(size_t n, bool use_private_rng) {
-    bytes b(bytes::initialized_later{}, n);
-    std::generate_n(b.begin(), n, [use_private_rng] {
-        return get_int_secure<bytes::value_type>(use_private_rng);
-    });
-    return b;
-}
+template<typename T>
+T get_int_secure(bool use_private);
+
+ss::sstring gen_alphanum_string_secure(size_t n);
 
 } // namespace random_generators
