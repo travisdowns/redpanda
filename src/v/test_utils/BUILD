@@ -195,6 +195,14 @@ redpanda_test_cc_library(
 )
 
 redpanda_test_cc_library(
+    name = "test_macros",
+    hdrs = [
+        "test_macros.h",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+redpanda_test_cc_library(
     name = "tmpbuf_file",
     hdrs = [
         "tmpbuf_file.h",
