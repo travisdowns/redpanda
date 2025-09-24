@@ -32,6 +32,9 @@ redpanda_test_cc_library(
         "test_macros.h",
         "tmp_dir.h",
     ],
+    implementation_deps = [
+        ":global_test_hooks",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         ":fixture",

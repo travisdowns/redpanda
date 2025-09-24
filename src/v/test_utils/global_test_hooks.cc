@@ -9,16 +9,17 @@
  * by the Apache License, Version 2.0
  */
 
-#include "random/test_seeding.h"
+// #include "random/test_seeding.h"
 
-#include <string>
+// #include <string>
 
-namespace test_hooks {
+// namespace test_hooks_ {
 
-void before_test_case([[maybe_unused]] const std::string& test_name) {
-    // reset seeds for each test case to ensure reproducibility
-    random_generators::reset_seed_for_tests();
-}
+void some_function() {}
+// void before_test_case_(const std::string&) {
+//     // reset seeds for each test case to ensure reproducibility
+//     // random_generators::reset_seed_for_tests();
+// }
 
-void after_test_case([[maybe_unused]] const std::string& test_name) {}
-} // namespace test_hooks
+// void after_test_case([[maybe_unused]] const std::string& test_name) {}
+//} // namespace test_hooks_

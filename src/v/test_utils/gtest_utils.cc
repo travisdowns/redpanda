@@ -11,6 +11,7 @@
 #include "test_utils/gtest_utils.h"
 
 #include "base/vassert.h"
+// #include "test_utils/global_test_hooks.h"
 
 #include <seastar/core/lowres_clock.hh>
 
@@ -47,6 +48,15 @@ void rp_test_listener::OnTestPartResult(
         throw testing::AssertionException(result);
     }
 }
+
+// void rp_test_listener::OnTestStart(const ::testing::TestInfo& test_info) {
+//     (void)test_info;
+//     // test_hooks::before_test_case(test_info.name());
+// }
+
+// void rp_test_listener::OnTestEnd(const ::testing::TestInfo& test_info) {
+//     // test_hooks::after_test_case(test_info.name());
+// }
 
 ss::sstring get_test_directory() {
     const auto* test_info
