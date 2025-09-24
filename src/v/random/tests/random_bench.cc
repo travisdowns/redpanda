@@ -49,8 +49,19 @@ PERF_TEST_F(random_bench, get_int_state) {
     return do_generate([&] { return rng.get_int<int>(); });
 }
 
-PERF_TEST_F(random_bench, get_int_state) {
+// uses ~3x more instructions than the local single-use dist object
+// in the next test, belying the conventional wisdom that
+// reusing a dist object is more efficient.
+PERF_TEST_F(random_bench, std_engine_long_dist) {
     random_generators::rng::engine_type std_engine;
     std::uniform_int_distribution<int> dist;
     return do_generate([&] { return dist(std_engine); });
+}
+
+PERF_TEST_F(random_bench, std_engine_temp_dist) {
+    random_generators::rng::engine_type std_engine;
+    return do_generate([&] {
+        std::uniform_int_distribution<int> dist;
+        return dist(std_engine);
+    });
 }
