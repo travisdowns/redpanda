@@ -45,16 +45,21 @@ public:
     // Initializes with a given seed.
     explicit rng(seed_type seed);
 
+    // The initial seed used to create this rng object.
+    // If you create another object with the same seed it should
+    // generate the same sequence of values.
+    seed_type initial_seed() const { return initial_seed_; }
+
     template<typename T>
     T get_int() {
         std::uniform_int_distribution<T> dist;
-        return dist(gen);
+        return dist(gen_);
     }
 
     template<typename T>
     T get_int(T min, T max) {
         std::uniform_int_distribution<T> dist(min, max);
-        return dist(gen);
+        return dist(gen_);
     }
 
     template<typename T>
@@ -84,35 +89,36 @@ public:
     template<typename T>
     T get_real() {
         std::uniform_real_distribution<T> dist;
-        return dist(gen);
+        return dist(gen_);
     }
 
     template<typename T>
     T get_real(T min, T max) {
         std::uniform_real_distribution<T> dist(min, max);
-        return dist(gen);
+        return dist(gen_);
     }
 
     template<typename T>
     T get_real(T max) {
         std::uniform_real_distribution<T> dist(0, max);
-        return dist(gen);
+        return dist(gen_);
     }
 
     template<typename T>
     std::vector<T> randomized_range(T min, T max) {
         std::vector<T> r(max - min);
         std::iota(r.begin(), r.end(), min);
-        std::shuffle(r.begin(), r.end(), gen);
+        std::shuffle(r.begin(), r.end(), gen_);
         return r;
     }
 
     // Returns the underlying random engine, for use in
     // algorithms that require one.
-    engine_type& engine() { return gen; }
+    engine_type& engine() { return gen_; }
 
 private:
-    engine_type gen;
+    engine_type gen_;
+    seed_type initial_seed_;
     friend random_state_accessor;
 };
 

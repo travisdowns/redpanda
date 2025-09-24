@@ -70,7 +70,8 @@ rng::rng()
   : rng(get_initial_seed()) {}
 
 rng::rng(seed_type seed)
-  : gen(seed) {}
+  : gen_(seed)
+  , initial_seed_(seed) {}
 
 rng& global() {
     // if a reseeding has been requested, apply it here
