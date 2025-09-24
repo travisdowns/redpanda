@@ -598,6 +598,7 @@ redpanda_cc_btest(
         "//src/v/cloud_storage:types",
         "//src/v/cloud_storage/tests:common",
         "//src/v/model",
+        "//src/v/random:generators",
         "//src/v/test_utils:seastar_boost",
         "@boost//:test",
         "@fmt",
