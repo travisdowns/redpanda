@@ -753,7 +753,7 @@ FIXTURE_TEST(missing_method_test, rpc_integration_fixture) {
         std::shuffle(
           request_factory.begin(),
           request_factory.end(),
-          random_generators::internal::gen);
+          random_generators::global().engine());
 
         // dispatch the requests
         std::vector<ss::future<>> requests;
@@ -916,7 +916,7 @@ FIXTURE_TEST(version_not_supported, rpc_integration_fixture) {
     std::shuffle(
       request_factory.begin(),
       request_factory.end(),
-      random_generators::internal::gen);
+      random_generators::global().engine());
 
     // dispatch the requests
     std::vector<ss::future<>> requests;

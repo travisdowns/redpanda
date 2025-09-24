@@ -955,7 +955,7 @@ FIXTURE_TEST(
             std::shuffle(
               replicas.begin(),
               replicas.end(),
-              random_generators::internal::gen);
+              random_generators::global().engine());
 
             assignments.push_back(
               cluster::partition_assignment{

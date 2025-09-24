@@ -1539,7 +1539,8 @@ delete_topics_handler::handle(request_context ctx, ss::smp_service_group) {
            .error_code = map_topic_error_code(tr.ec)});
     }
 
-    std::ranges::shuffle(resp.data.responses, random_generators::internal::gen);
+    std::ranges::shuffle(
+      resp.data.responses, random_generators::global().engine());
 
     co_return co_await ctx.respond(std::move(resp));
 }
