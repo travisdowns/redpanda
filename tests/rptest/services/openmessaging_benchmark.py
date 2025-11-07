@@ -397,13 +397,17 @@ class OpenMessagingBenchmark(Service):
                 err_msg="Open Messaging Benchmark service didn't start",
             )
 
-    def raise_on_bad_log_lines(self, node):
+    def raise_on_bad_log_lines(self, node: ClusterNode) -> None:
         """
         Check if benchmark logfile contains errors
 
         Here we expect that log doesn't contain java Exceptions
         """
-        bad_lines = collections.defaultdict(list)
+
+        def make_vl() -> VersionAndLines:
+            return {"version": None, "lines": []}
+
+        bad_lines: dict[ClusterNode, VersionAndLines] = collections.defaultdict(make_vl)
         self.logger.info(f"Scanning node {node.account.hostname} log for errors...")
 
         for line in node.account.ssh_capture(
@@ -416,7 +420,7 @@ class OpenMessagingBenchmark(Service):
                     break
 
             if not allowed:
-                bad_lines[node].append(line)
+                bad_lines[node]["lines"].append(line)
 
         if bad_lines:
             raise BadLogLines(bad_lines)
