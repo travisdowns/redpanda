@@ -905,6 +905,29 @@ redpanda_cc_bench(
 )
 
 redpanda_cc_bench(
+    name = "kafka_produce_parallel_rpbench",
+    srcs = [
+        "produce_parallel_bench.cc",
+    ],
+    cpu = 1,
+    memory = "32GiB",
+    redirect_stderr = True,
+    deps = [
+        "//src/v/base",
+        "//src/v/container:chunked_vector",
+        "//src/v/kafka/protocol/schemata:produce_request",
+        "//src/v/kafka/server",
+        "//src/v/model",
+        "//src/v/random:generators",
+        "//src/v/redpanda/tests:fixture",
+        "//src/v/test_utils:async",
+        "@boost//:test",
+        "@seastar",
+        "@seastar//:benchmark",
+    ],
+)
+
+redpanda_cc_bench(
     name = "quota_manager_rpbench",
     srcs = [
         "quota_manager_bench.cc",
