@@ -201,3 +201,9 @@ PERF_TEST_C(produce_partition_fixture, 4_KiB_produced) {
 PERF_TEST_C(produce_partition_fixture, 8_KiB_produced) {
     co_return co_await this->run_test(8_KiB, measured_region::produced);
 }
+PERF_TEST_C(produce_partition_fixture, 16_KiB_produced) {
+    co_return co_await this->run_test(16_KiB, measured_region::produced);
+}
+PERF_TEST_C(produce_partition_fixture, 32_KiB_produced) {
+    co_return co_await this->run_test(32_KiB, measured_region::produced);
+}
