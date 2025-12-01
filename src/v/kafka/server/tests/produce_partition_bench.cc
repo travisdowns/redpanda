@@ -41,7 +41,13 @@ struct produce_partition_fixture : redpanda_thread_fixture {
     model::topic t;
 
     produce_partition_fixture() {
-        BOOST_TEST_CHECKPOINT("before leadership");
+        config::shard_local_cfg().kafka_batch_max_bytes.set_value(10_MiB);
+
+        // wait for leadership
+        vlog(
+          plog.info,
+          "waiting for controller leadership... ({})",
+          model::kafka_namespace);
 
         wait_for_controller_leadership().get();
 

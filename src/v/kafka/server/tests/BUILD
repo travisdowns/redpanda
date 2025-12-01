@@ -890,6 +890,7 @@ redpanda_cc_bench(
     memory = "4GiB",
     redirect_stderr = True,
     deps = [
+        "//src/v/config",
         "//src/v/container:chunked_vector",
         "//src/v/kafka/protocol/schemata:produce_request",
         "//src/v/kafka/server",
